@@ -3,9 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>设计指标智能匹配助手</title>
+    <title>贵州统计指标匹配 Agent</title>
     <link rel="stylesheet" href="assets/styles.css" />
     <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script defer src="assets/indicators.js"></script>
     <script defer src="assets/app.js"></script>
   </head>
   <body>
@@ -16,18 +17,19 @@
             <i data-lucide="network"></i>
           </div>
           <div>
-            <h1>设计指标智能匹配助手</h1>
-            <p>把设计目标、约束和评价指标转成可执行的方案建议。</p>
+            <h1>贵州统计指标匹配 Agent</h1>
+            <p>面向贵州统计局指标集，把自然语言问题匹配到可用指标。</p>
           </div>
         </section>
 
         <section class="panel-section">
           <div class="section-title">
-            <i data-lucide="lock-keyhole" aria-hidden="true"></i>
-            <h2>权限指标集</h2>
+            <i data-lucide="database" aria-hidden="true"></i>
+            <h2>内置指标集</h2>
           </div>
+          <p class="hint" id="metricSummary">正在加载贵州统计指标集...</p>
           <label class="metric-access">
-            <span>指标集接口</span>
+            <span>可选：指标集接口</span>
             <input id="metricEndpoint" type="url" placeholder="https://你的后端/api/metrics" autocomplete="off" />
           </label>
           <label class="metric-access">
@@ -36,7 +38,7 @@
           </label>
           <button class="secondary-button" id="loadMetrics" type="button">
             <i data-lucide="key-round" aria-hidden="true"></i>
-            加载指标集
+            重新加载指标集
           </button>
           <div class="metric-list" id="metricList"></div>
         </section>
@@ -62,15 +64,15 @@
             <i data-lucide="save" aria-hidden="true"></i>
             保存配置
           </button>
-          <p class="hint">公开部署时建议填写你自己的后端代理地址，不要把密钥写进仓库。</p>
+          <p class="hint">配置后可调用模型生成更自然的报告；不配置也能用内置指标集做本地匹配。</p>
         </section>
       </aside>
 
       <section class="chat-panel" aria-label="智能对话">
         <header class="chat-header">
           <div>
-            <p class="eyebrow">GraphRAG Design Copilot</p>
-            <h2>方案问答工作台</h2>
+            <p class="eyebrow">Guizhou GraphRAG Agent</p>
+            <h2>指标匹配与报告工作台</h2>
           </div>
           <div class="header-actions">
             <button class="icon-button" id="resetChat" type="button" title="清空对话" aria-label="清空对话">
@@ -83,7 +85,7 @@
         </header>
 
         <div class="knowledge-card">
-          <label for="knowledgeBase">设计指标匹配方案内容</label>
+          <label for="knowledgeBase">匹配策略</label>
           <textarea id="knowledgeBase" rows="5"></textarea>
         </div>
 
@@ -93,7 +95,7 @@
           <textarea
             id="userInput"
             rows="2"
-            placeholder="输入你的设计需求，例如：我想匹配城市更新项目的韧性、成本和碳排指标..."
+            placeholder="输入问题，例如：我想了解村里人口老龄化情况，可以看哪些指标..."
             required
           ></textarea>
           <button class="send-button" type="submit" aria-label="发送">

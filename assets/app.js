@@ -1,21 +1,28 @@
-const publicMetricPreview = [
-  { name: "功能适配", desc: "目标场景、用户需求、业务流程", score: "--" },
-  { name: "技术可行", desc: "数据来源、模型能力、接口集成", score: "--" },
-  { name: "成本效率", desc: "开发成本、部署成本、维护成本", score: "--" },
-  { name: "体验质量", desc: "响应速度、可解释性、交互负担", score: "--" },
-  { name: "风险控制", desc: "隐私、安全、误答和人工复核", score: "--" },
+const defaultKnowledge = `匹配策略：
+1. 先理解用户问题中的主题、地区、对象、时间和分析目的。
+2. 优先在贵州统计局指标集中匹配指标名称、别名、分类、口径说明和来源。
+3. 对命中的指标给出推荐理由，并区分主指标、辅助指标和需要确认的指标。
+4. 如果现有指标覆盖不足，给出联网检索关键词和官方来源优先级。
+5. 输出包括：问题理解、推荐指标、缺口指标、检索建议、简短统计分析报告。`;
+
+const stopWords = [
+  "我想", "帮我", "查询", "了解", "看看", "看下", "分析", "情况", "指标",
+  "哪些", "哪个", "有什么", "有没有", "是多少", "有多少", "相关", "贵州",
+  "村里", "村庄", "本村", "可以", "需要", "一下", "方面"
 ];
 
-const defaultKnowledge = `设计指标匹配方案：
-1. 先识别用户的设计目标、使用场景、约束条件和优先级。
-2. 从功能适配、技术可行、成本效率、体验质量、风险控制五个维度进行匹配。
-3. 对每个维度给出推荐等级、原因、需要补充的数据和下一步动作。
-4. 对不确定项给出假设，并提示需要人工确认的关键指标。
-5. 输出应包含：指标匹配表、方案建议、风险提示、实施步骤。`;
+const webSourceHints = [
+  "贵州省统计局",
+  "贵州统计年鉴",
+  "贵州省国民经济和社会发展统计公报",
+  "国家统计局",
+  "贵州省人民政府 数据"
+];
 
 const state = {
   messages: loadJson("design-chat-history", []),
   metrics: [],
+  metricPayload: null,
   settings: loadJson("design-chat-settings", {
     apiBaseUrl: "",
     modelName: "gpt-4.1-mini",
@@ -27,6 +34,7 @@ const state = {
 
 const els = {
   metricList: document.querySelector("#metricList"),
+  metricSummary: document.querySelector("#metricSummary"),
   chatStream: document.querySelector("#chatStream"),
   chatForm: document.querySelector("#chatForm"),
   userInput: document.querySelector("#userInput"),
@@ -54,45 +62,84 @@ function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function init() {
-  renderMetrics();
+async function init() {
   hydrateSettings();
   els.knowledgeBase.value = localStorage.getItem("design-knowledge") || defaultKnowledge;
+  bindEvents();
+  await loadBuiltInMetrics();
   renderMessages();
 
   if (!state.messages.length) {
     addMessage(
       "assistant",
-      "你好，我可以根据你的设计指标匹配方案，帮你把需求拆成指标、匹配建议、风险和实施步骤。你可以先描述项目场景、目标用户、已有数据和最重要的评价指标。"
+      "你好，我已经载入贵州统计指标集。你可以直接用自然语言提问，比如“村里养老相关怎么看”“产业发展有哪些指标”“农村水利设施包括哪些”。我会先匹配现有指标，覆盖不足时再给出联网补充检索和简短报告。"
     );
   }
 
-  bindEvents();
-  lucide.createIcons();
+  refreshIcons();
+}
+
+async function loadBuiltInMetrics() {
+  try {
+    const payload = window.GZ_INDICATOR_DATA || await fetchMetricPayload("assets/indicators.json");
+    applyMetricPayload(payload, "内置指标集");
+  } catch (error) {
+    state.metrics = [];
+    els.metricSummary.textContent = `内置指标集加载失败：${error.message}`;
+    renderMetrics();
+  }
+}
+
+async function fetchMetricPayload(url) {
+  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  return response.json();
+}
+
+function applyMetricPayload(payload, label) {
+  const metrics = Array.isArray(payload) ? payload : payload.metrics;
+  if (!Array.isArray(metrics)) {
+    throw new Error("指标数据需要是数组，或包含 metrics 数组字段。");
+  }
+  state.metricPayload = payload;
+  state.metrics = metrics.map(normalizeMetric).filter(Boolean);
+  const categories = new Set(state.metrics.map((item) => item.category).filter(Boolean));
+  els.metricSummary.textContent = `${label}已加载：${state.metrics.length} 个指标，覆盖 ${categories.size} 个分类。`;
+  renderMetrics();
 }
 
 function renderMetrics() {
-  const metrics = state.metrics.length ? state.metrics : publicMetricPreview;
-  const locked = !state.metrics.length;
-  els.metricList.innerHTML = metrics
+  if (!state.metrics.length) {
+    els.metricList.innerHTML = '<p class="locked-note">指标集未加载。请检查 assets/indicators.js，或通过受控接口重新加载。</p>';
+    return;
+  }
+
+  const categoryStats = [...groupByCategory().entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  els.metricList.innerHTML = categoryStats
     .map(
-      (item) => `
-        <article class="metric-item ${locked ? "locked" : ""}">
+      ([category, count]) => `
+        <article class="metric-item">
           <div>
-            <strong>${item.name}</strong>
-            <span>${item.desc}</span>
+            <strong>${escapeHtml(category)}</strong>
+            <span>${count} 个指标</span>
           </div>
-          <div class="metric-score">${item.score}</div>
+          <div class="metric-score">${count}</div>
         </article>
       `
     )
     .join("");
-  if (locked) {
-    els.metricList.insertAdjacentHTML(
-      "afterbegin",
-      '<p class="locked-note">真实指标集未加载。请通过受控后端接口和访问令牌获取，避免把私有指标公开到 GitHub Pages。</p>'
-    );
+}
+
+function groupByCategory() {
+  const map = new Map();
+  for (const metric of state.metrics) {
+    const category = metric.category || "未分类";
+    map.set(category, (map.get(category) || 0) + 1);
   }
+  return map;
 }
 
 function hydrateSettings() {
@@ -121,23 +168,21 @@ async function handleSubmit(event) {
 
   els.userInput.value = "";
   addMessage("user", content);
-  const typingId = addMessage("assistant", "正在匹配设计指标...", true);
+  const typingId = addMessage("assistant", "正在从贵州统计指标集中匹配...", true);
 
   try {
-    const reply = await getAssistantReply(content);
+    const localResult = analyzeQuestion(content);
+    const reply = await getAssistantReply(content, localResult);
     updateMessage(typingId, reply);
   } catch (error) {
-    updateMessage(
-      typingId,
-      `接口调用失败，已切换为本地分析。\n\n${buildLocalReply(content)}\n\n错误信息：${error.message}`
-    );
+    updateMessage(typingId, `处理失败：${error.message}`);
   }
 }
 
-async function getAssistantReply(content) {
+async function getAssistantReply(content, localResult) {
   const { apiBaseUrl, modelName, apiKey } = state.settings;
   if (!apiBaseUrl || !apiKey) {
-    return buildLocalReply(content);
+    return buildLocalReply(localResult);
   }
 
   const response = await fetch(apiBaseUrl, {
@@ -148,53 +193,198 @@ async function getAssistantReply(content) {
     },
     body: JSON.stringify({
       model: modelName || "gpt-4.1-mini",
-      temperature: 0.35,
+      temperature: 0.25,
       messages: [
         {
           role: "system",
           content:
-            "你是设计指标匹配助手。请基于用户提供的方案内容输出结构化、可执行、谨慎的中文建议。",
+            "你是贵州统计指标匹配 Agent。必须优先使用给定指标匹配结果；匹配不足时，提出公开联网检索方向和谨慎的统计分析报告，不编造具体数据。",
         },
         {
           role: "user",
-          content: `方案内容：\n${els.knowledgeBase.value}\n\n已授权指标集：\n${formatMetricsForPrompt()}\n\n用户需求：\n${content}`,
+          content: `匹配策略：\n${els.knowledgeBase.value}\n\n用户问题：\n${content}\n\n本地指标匹配结果：\n${JSON.stringify(localResult, null, 2)}`,
         },
       ],
     }),
   });
 
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
-  }
-
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   const data = await response.json();
-  return data.choices?.[0]?.message?.content?.trim() || "接口返回为空，请检查模型响应格式。";
+  return data.choices?.[0]?.message?.content?.trim() || buildLocalReply(localResult);
 }
 
-function buildLocalReply(content) {
-  const sourceMetrics = state.metrics.length ? state.metrics : publicMetricPreview;
-  const lower = content.toLowerCase();
-  const detected = sourceMetrics.filter((item) => {
-    const text = `${item.name}${item.desc}`.toLowerCase();
-    return [...new Set([...content, ...lower])].some((char) => text.includes(char));
-  });
-  const topMetrics = (detected.length ? detected : sourceMetrics.slice(0, 3)).slice(0, 4);
-  const accessNote = state.metrics.length
-    ? "已基于授权指标集进行匹配。"
-    : "当前未加载授权指标集，以下为公开维度下的演示性建议。";
+function analyzeQuestion(question) {
+  const matches = searchMetrics(question, 8);
+  const topScore = matches[0]?.score || 0;
+  const coverage = topScore >= 0.72 ? "full" : topScore >= 0.42 ? "partial" : "low";
+  const inferredTopics = inferTopics(question, matches);
+  const gaps = inferGaps(question, matches, coverage);
+  return {
+    question,
+    inferredTopics,
+    coverage,
+    topScore,
+    matches,
+    gaps,
+    webQueries: buildWebQueries(question, gaps, inferredTopics),
+  };
+}
 
-  return `指标匹配结果：
-${accessNote}
-${topMetrics.map((item, index) => `${index + 1}. ${item.name}：建议优先评估「${item.desc}」，当前参考匹配度 ${item.score}。`).join("\n")}
+function searchMetrics(question, limit = 8) {
+  const qNorm = normalizeText(question);
+  const qCore = stripStopWords(qNorm);
+  const grams = makeNgrams(qCore || qNorm);
 
-方案建议：
-围绕你的需求，可以先建立“目标-指标-数据-验证”四层结构。第一步把设计目标写成可衡量问题，第二步为每个指标标注数据来源和权重，第三步用对话系统解释推荐原因，第四步保留人工复核入口。
+  return state.metrics
+    .map((metric) => scoreMetric(metric, question, qNorm, qCore, grams))
+    .filter((item) => item.score >= 0.12)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
 
-需要补充的信息：
-请继续提供项目类型、目标用户、已有数据、最重要的 3 个指标、必须满足的成本或时间约束。
+function scoreMetric(metric, question, qNorm, qCore, grams) {
+  const fields = [
+    metric.name,
+    metric.category,
+    metric.desc,
+    metric.source,
+    metric.object,
+    metric.property,
+    ...metric.aliases,
+    ...metric.conditions,
+  ].filter(Boolean);
+  const searchText = normalizeText(fields.join(" "));
+  const metricName = normalizeText(metric.name);
+  const category = normalizeText(metric.category);
+  const aliases = metric.aliases.map(normalizeText);
 
-风险提示：
-如果指标权重没有明确来源，系统可能给出看似合理但难以追溯的建议。建议在正式部署前增加引用来源、置信度和人工确认状态。`;
+  let score = 0;
+  const reasons = [];
+
+  if (metricName && (qNorm.includes(metricName) || (qCore.length >= 2 && metricName.includes(qCore)))) {
+    score += 0.55;
+    reasons.push("指标名称直接相关");
+  }
+  if (aliases.some((alias) => alias.length >= 2 && (qNorm.includes(alias) || (qCore.length >= 2 && alias.includes(qCore))))) {
+    score += 0.35;
+    reasons.push("命中别名或常见说法");
+  }
+  if (category && qNorm.includes(category)) {
+    score += 0.2;
+    reasons.push(`命中分类「${metric.category}」`);
+  }
+
+  const gramHits = grams.filter((gram) => searchText.includes(gram));
+  const gramScore = grams.length ? gramHits.length / grams.length : 0;
+  score += gramScore * 0.45;
+
+  if (metric.isBoolean && /是否|有没有|有无|能否|通不通|做了没有/.test(question)) {
+    score += 0.12;
+    reasons.push("问题是是否类判断");
+  }
+  if (metric.isBroadMetric && score < 0.7) {
+    score -= 0.08;
+  }
+  if (metric.desc && normalizeText(metric.desc).includes(qCore) && qCore.length >= 3) {
+    score += 0.12;
+    reasons.push("口径说明相关");
+  }
+
+  score = Math.max(0, Math.min(0.99, score));
+  if (!reasons.length && gramScore > 0) {
+    reasons.push("关键词语义接近");
+  }
+
+  return {
+    name: metric.name,
+    category: metric.category,
+    desc: metric.desc,
+    source: metric.source,
+    score,
+    reason: reasons.join("；") || "弱相关",
+  };
+}
+
+function inferTopics(question, matches) {
+  const categories = [...new Set(matches.slice(0, 5).map((item) => item.category).filter(Boolean))];
+  const keywords = stripStopWords(normalizeText(question))
+    .split("")
+    .filter((char, index, arr) => char && arr.indexOf(char) === index)
+    .slice(0, 12);
+  return { categories, keywords };
+}
+
+function inferGaps(question, matches, coverage) {
+  const gaps = [];
+  if (coverage !== "full") {
+    gaps.push("现有指标匹配度不足，需要补充公开统计口径或相关指标名称。");
+  }
+  if (/近年|近几年|趋势|变化|恢复|增长|下降|对比|比较/.test(question)) {
+    gaps.push("需要时间序列数据，至少包含年份、地区和指标值。");
+  }
+  if (/全国|周边|其他省|排名|比较|对比/.test(question)) {
+    gaps.push("需要外部地区或全国口径数据用于对比。");
+  }
+  if (!matches.some((item) => item.desc)) {
+    gaps.push("命中指标缺少口径说明，正式报告前需要核对定义。");
+  }
+  return gaps;
+}
+
+function buildWebQueries(question, gaps, topics) {
+  if (!gaps.length) return [];
+  const core = stripStopWords(question).replace(/\s+/g, " ").trim();
+  const categoryPart = topics.categories.slice(0, 2).join(" ");
+  const base = [core, categoryPart].filter(Boolean).join(" ");
+  return webSourceHints.slice(0, 4).map((source) => `${source} ${base}`.trim());
+}
+
+function buildLocalReply(result) {
+  const matchLines = result.matches.length
+    ? result.matches
+        .slice(0, 6)
+        .map((item, index) => {
+          const source = item.source ? `；来源：${item.source}` : "";
+          const desc = item.desc ? `\n   口径：${truncate(item.desc, 92)}` : "";
+          return `${index + 1}. ${item.name}（${item.category}，匹配度 ${Math.round(item.score * 100)}%）\n   推荐理由：${item.reason}${source}${desc}`;
+        })
+        .join("\n")
+    : "没有在现有指标集中找到足够可靠的匹配。";
+
+  const coverageText = {
+    full: "现有指标基本可以覆盖这个问题。",
+    partial: "现有指标只能覆盖一部分，需要补充口径或数据。",
+    low: "现有指标匹配较弱，建议进入联网补充检索。",
+  }[result.coverage];
+
+  const gapLines = result.gaps.length
+    ? result.gaps.map((gap) => `- ${gap}`).join("\n")
+    : "- 暂未发现明显缺口，优先使用上面的授权指标。";
+
+  const webLines = result.webQueries.length
+    ? result.webQueries
+        .map((query) => {
+          const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
+          return `- ${query}\n  ${url}`;
+        })
+        .join("\n")
+    : "- 当前匹配较充分，暂不需要联网补充。";
+
+  return `问题理解：
+你想围绕“${result.question}”寻找可用统计指标，并据此形成一个简短分析口径。
+
+现有指标匹配：
+${coverageText}
+${matchLines}
+
+缺口判断：
+${gapLines}
+
+联网补充建议：
+${webLines}
+
+简短统计分析报告：
+建议先以上述匹配度最高的指标作为主指标，再用同分类下的辅助指标交叉验证。如果问题涉及趋势，应按年度整理指标值，观察总量变化和结构变化；如果涉及比较，应统一统计口径后再做地区或时间对比。对于联网补充得到的公开资料，需要保留来源、发布时间和口径说明，正式结论仍以贵州统计局授权指标和数据为准。`;
 }
 
 async function loadProtectedMetrics() {
@@ -202,7 +392,8 @@ async function loadProtectedMetrics() {
   const endpoint = els.metricEndpoint.value.trim();
   const token = els.metricAccessToken.value.trim();
   if (!endpoint || !token) {
-    addMessage("assistant", "请先填写指标集接口和访问令牌。真实指标集不应存放在公开仓库或 GitHub Pages 静态文件里。");
+    await loadBuiltInMetrics();
+    addMessage("assistant", "已重新加载内置贵州统计指标集。若要加载私有后端指标，请填写接口和访问令牌。");
     return;
   }
 
@@ -214,41 +405,61 @@ async function loadProtectedMetrics() {
         Authorization: `Bearer ${token}`,
       },
     });
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
-    }
-    const data = await response.json();
-    const metrics = Array.isArray(data) ? data : data.metrics;
-    if (!Array.isArray(metrics)) {
-      throw new Error("指标接口需要返回数组，或包含 metrics 数组字段。");
-    }
-    state.metrics = metrics.map(normalizeMetric).filter(Boolean);
-    renderMetrics();
-    addMessage("assistant", `已加载 ${state.metrics.length} 个授权指标，可用于后续方案匹配。`);
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    applyMetricPayload(await response.json(), "后端授权指标集");
+    addMessage("assistant", `已加载 ${state.metrics.length} 个后端授权指标，可用于后续匹配。`);
   } catch (error) {
     addMessage("assistant", `指标集加载失败：${error.message}`);
   } finally {
-    els.loadMetrics.innerHTML = '<i data-lucide="key-round" aria-hidden="true"></i>加载指标集';
-    lucide.createIcons();
+    els.loadMetrics.innerHTML = '<i data-lucide="key-round" aria-hidden="true"></i>重新加载指标集';
+    refreshIcons();
   }
 }
 
 function normalizeMetric(item) {
-  if (!item || !item.name) return null;
+  const name = String(item.name || item.metric || item.metric_name || "").trim();
+  if (!name) return null;
   return {
-    name: String(item.name),
-    desc: String(item.desc || item.description || "未提供说明"),
-    score: item.score ?? item.weight ?? "--",
+    name,
+    category: String(item.category || "未分类").trim(),
+    desc: String(item.desc || item.description || item.definition || "").trim(),
+    aliases: Array.isArray(item.aliases)
+      ? item.aliases.map(String).filter(Boolean)
+      : String(item.aliases || "").split(/[;；,，]/).filter(Boolean),
+    source: String(item.source || "").trim(),
+    object: String(item.object || "").trim(),
+    property: String(item.property || "").trim(),
+    conditions: Array.isArray(item.conditions)
+      ? item.conditions.map(String).filter(Boolean)
+      : String(item.conditions || "").split(/[;；,，]/).filter(Boolean),
+    isBoolean: Boolean(item.isBoolean || item.is_boolean === true || item.is_boolean === "True"),
+    isBroadMetric: Boolean(item.isBroadMetric || item.is_broad_metric === true || item.is_broad_metric === "True"),
   };
 }
 
-function formatMetricsForPrompt() {
-  if (!state.metrics.length) {
-    return "未加载。请提示用户先通过授权接口加载指标集，当前只能给出公开维度的演示性建议。";
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^\p{Script=Han}a-z0-9]/gu, "");
+}
+
+function stripStopWords(value) {
+  let text = normalizeText(value);
+  for (const word of stopWords) {
+    text = text.replaceAll(normalizeText(word), "");
   }
-  return state.metrics
-    .map((item, index) => `${index + 1}. ${item.name}：${item.desc}；参考值：${item.score}`)
-    .join("\n");
+  return text;
+}
+
+function makeNgrams(text) {
+  const clean = normalizeText(text);
+  const grams = new Set();
+  for (let size of [2, 3]) {
+    for (let i = 0; i <= clean.length - size; i += 1) {
+      grams.add(clean.slice(i, i + size));
+    }
+  }
+  return [...grams].slice(0, 80);
 }
 
 function addMessage(role, content, transient = false) {
@@ -290,7 +501,7 @@ function renderMessages() {
     )
     .join("");
   els.chatStream.scrollTop = els.chatStream.scrollHeight;
-  lucide.createIcons();
+  refreshIcons();
 }
 
 function saveSettings(showFeedback = true) {
@@ -306,7 +517,7 @@ function saveSettings(showFeedback = true) {
   els.saveSettings.textContent = "已保存";
   setTimeout(() => {
     els.saveSettings.innerHTML = '<i data-lucide="save" aria-hidden="true"></i>保存配置';
-    lucide.createIcons();
+    refreshIcons();
   }, 1200);
 }
 
@@ -314,29 +525,40 @@ function resetChat() {
   state.messages = [];
   persistMessages();
   renderMessages();
-  addMessage("assistant", "对话已清空。你可以输入新的设计场景，我会重新进行指标匹配。");
+  addMessage("assistant", "对话已清空。请输入新的贵州统计指标问题。");
 }
 
 function exportChat() {
   const lines = state.messages
-    .map((item) => `## ${item.role === "user" ? "用户" : "助手"}\n${item.content}`)
+    .map((item) => `## ${item.role === "user" ? "用户" : "Agent"}\n${item.content}`)
     .join("\n\n");
   const blob = new Blob([lines], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `design-chat-${new Date().toISOString().slice(0, 10)}.md`;
+  link.download = `guizhou-indicator-report-${new Date().toISOString().slice(0, 10)}.md`;
   link.click();
   URL.revokeObjectURL(url);
 }
 
+function truncate(value, maxLength) {
+  const text = String(value || "");
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
 function escapeHtml(value) {
-  return value
+  return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function refreshIcons() {
+  if (window.lucide?.createIcons) {
+    window.lucide.createIcons();
+  }
 }
 
 document.addEventListener("DOMContentLoaded", init);
