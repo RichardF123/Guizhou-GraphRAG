@@ -8,8 +8,17 @@ const defaultKnowledge = `匹配策略：
 const stopWords = [
   "我想", "帮我", "查询", "了解", "看看", "看下", "分析", "情况", "指标",
   "哪些", "哪个", "有什么", "有没有", "是多少", "有多少", "相关", "贵州",
-  "村里", "村庄", "本村", "可以", "需要", "一下", "方面"
+  "村里的", "村里", "村庄", "本村", "包括哪些", "相关指标", "可以", "需要", "一下", "方面", "的"
 ];
+
+const broadMetricNames = new Set([
+  "人数", "数量", "个数", "户数", "面积", "情况", "基本情况", "人口情况",
+  "利用情况", "收益总额", "经营收入", "从业人员", "从业人员数"
+]);
+
+const globalWords = ["哪些", "有哪些", "包括", "包含", "方面", "分类", "类别", "相关指标", "指标有"];
+const localWords = ["是否", "有没有", "有无", "能否", "做了没有", "我想看", "查询", "多少", "有多少", "是多少"];
+const compareWords = ["比较", "对比", "区别", "差异", "分别"];
 
 const webSourceHints = [
   "贵州省统计局",
@@ -142,6 +151,16 @@ function groupByCategory() {
   return map;
 }
 
+function metricsByCategory() {
+  const map = new Map();
+  for (const metric of state.metrics) {
+    const category = metric.category || "未分类";
+    if (!map.has(category)) map.set(category, []);
+    map.get(category).push(metric);
+  }
+  return map;
+}
+
 function hydrateSettings() {
   els.apiBaseUrl.value = state.settings.apiBaseUrl;
   els.modelName.value = state.settings.modelName;
@@ -214,13 +233,16 @@ async function getAssistantReply(content, localResult) {
 }
 
 function analyzeQuestion(question) {
-  const matches = searchMetrics(question, 8);
+  const route = routeQuestion(question);
+  const matches = searchMetrics(question, 8, route);
   const topScore = matches[0]?.score || 0;
-  const coverage = topScore >= 0.72 ? "full" : topScore >= 0.42 ? "partial" : "low";
-  const inferredTopics = inferTopics(question, matches);
+  const coverage = topScore >= 0.68 ? "full" : topScore >= 0.36 ? "partial" : "low";
+  const inferredTopics = inferTopics(question, matches, route);
   const gaps = inferGaps(question, matches, coverage);
   return {
     question,
+    optimizedVersion: state.metricPayload?.version || "semantic_graphrag_optimized_offline",
+    route,
     inferredTopics,
     coverage,
     topScore,
@@ -230,19 +252,91 @@ function analyzeQuestion(question) {
   };
 }
 
-function searchMetrics(question, limit = 8) {
-  const qNorm = normalizeText(question);
-  const qCore = stripStopWords(qNorm);
-  const grams = makeNgrams(qCore || qNorm);
+function routeQuestion(question) {
+  const categories = [...groupByCategory().keys()];
+  const mentionedCategories = categories.filter((category) => category && question.includes(category));
+  let queryType = "local";
 
-  return state.metrics
-    .map((metric) => scoreMetric(metric, question, qNorm, qCore, grams))
-    .filter((item) => item.score >= 0.12)
+  if (mentionedCategories.length >= 2 || compareWords.some((word) => question.includes(word))) {
+    queryType = "cross_category";
+  } else if (localWords.some((word) => question.includes(word))) {
+    queryType = "local";
+  } else if (globalWords.some((word) => question.includes(word)) && !/多少|数量|数/.test(question)) {
+    queryType = "global";
+  }
+
+  const rankedCategories = mentionedCategories.length
+    ? mentionedCategories.map((category) => ({ category, score: 0.98, reason: "命中大类名称" }))
+    : rankCategories(question, 3);
+
+  return {
+    queryType,
+    categories: rankedCategories.map((item) => item.category),
+    rankedCategories,
+    reason: mentionedCategories.length ? "命中大类名称" : "根据大类摘要和指标名称推断",
+  };
+}
+
+function rankCategories(question, limit = 3) {
+  const byCategory = metricsByCategory();
+  const qNorm = normalizeText(question);
+  const qCore = stripStopWords(question);
+  const grams = makeNgrams(qCore || qNorm);
+  return [...byCategory.entries()]
+    .map(([category, metrics]) => {
+      const sample = metrics
+        .slice(0, 80)
+        .map((metric) => [metric.name, metric.desc, metric.object, metric.property, ...metric.aliases].join(" "))
+        .join(" ");
+      const searchable = normalizeText(`${category} ${sample}`);
+      let score = category && qNorm.includes(normalizeText(category)) ? 0.98 : 0;
+      const hits = grams.filter((gram) => searchable.includes(gram)).length;
+      score = Math.max(score, grams.length ? hits / grams.length : 0);
+      return { category, score, reason: score >= 0.98 ? "命中大类名称" : "根据大类指标摘要推断" };
+    })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
 
-function scoreMetric(metric, question, qNorm, qCore, grams) {
+function searchMetrics(question, limit = 8, route = routeQuestion(question)) {
+  const qNorm = normalizeText(question);
+  const qCore = stripStopWords(qNorm);
+  const grams = makeNgrams(qCore || qNorm);
+  const routeCategories = new Set(route.categories || []);
+
+  const candidates = state.metrics
+    .map((metric) => scoreMetric(metric, question, qNorm, qCore, grams, routeCategories))
+    .filter((item) => item.score >= 0.08)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  if (route.queryType === "global" || route.queryType === "cross_category") {
+    const byCategory = metricsByCategory();
+    const globalMatches = [];
+    for (const category of route.categories || []) {
+      const categoryMetrics = byCategory.get(category) || [];
+      const representatives = categoryMetrics
+        .map((metric) => scoreMetric(metric, question, qNorm, qCore, grams, routeCategories))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+      for (const scored of representatives) {
+        globalMatches.push({
+          ...scored,
+          score: Math.max(scored.score, 0.48),
+          reason: `命中大类社区「${category}」；${scored.reason}`,
+        });
+      }
+    }
+    return [...globalMatches, ...candidates]
+      .sort((a, b) => b.score - a.score)
+      .filter(uniqueByName)
+      .slice(0, limit);
+  }
+
+  return candidates;
+}
+
+function scoreMetric(metric, question, qNorm, qCore, grams, routeCategories = new Set()) {
   const fields = [
     metric.name,
     metric.category,
@@ -257,42 +351,43 @@ function scoreMetric(metric, question, qNorm, qCore, grams) {
   const metricName = normalizeText(metric.name);
   const category = normalizeText(metric.category);
   const aliases = metric.aliases.map(normalizeText);
+  const fuzzy = fuzzyScore(qCore || qNorm, searchText);
+  const coverage = coverageScore(question, metric.name);
+  const semantic = semanticScore(question, metric);
+  const routeBonus = routeCategories.has(metric.category) ? 0.16 : 0;
+  const penalty = broadMetricPenalty(question, metric);
 
-  let score = 0;
+  let score = 0.35 * fuzzy + 0.30 * coverage + 0.16 + 0.09 * semantic + routeBonus - penalty;
   const reasons = [];
 
   if (metricName && (qNorm.includes(metricName) || (qCore.length >= 2 && metricName.includes(qCore)))) {
-    score += 0.55;
+    score += 0.2;
     reasons.push("指标名称直接相关");
   }
   if (aliases.some((alias) => alias.length >= 2 && (qNorm.includes(alias) || (qCore.length >= 2 && alias.includes(qCore))))) {
-    score += 0.35;
+    score += 0.14;
     reasons.push("命中别名或常见说法");
   }
   if (category && qNorm.includes(category)) {
-    score += 0.2;
+    score += 0.08;
     reasons.push(`命中分类「${metric.category}」`);
   }
-
-  const gramHits = grams.filter((gram) => searchText.includes(gram));
-  const gramScore = grams.length ? gramHits.length / grams.length : 0;
-  score += gramScore * 0.45;
 
   if (metric.isBoolean && /是否|有没有|有无|能否|通不通|做了没有/.test(question)) {
     score += 0.12;
     reasons.push("问题是是否类判断");
   }
-  if (metric.isBroadMetric && score < 0.7) {
-    score -= 0.08;
-  }
   if (metric.desc && normalizeText(metric.desc).includes(qCore) && qCore.length >= 3) {
     score += 0.12;
     reasons.push("口径说明相关");
   }
+  if (coverage >= 0.92) score += 0.2;
+  else if (coverage >= 0.8) score += 0.1;
+  if (routeBonus) reasons.push(`路由大类「${metric.category}」加权`);
 
   score = Math.max(0, Math.min(0.99, score));
-  if (!reasons.length && gramScore > 0) {
-    reasons.push("关键词语义接近");
+  if (!reasons.length && (fuzzy > 0 || coverage > 0)) {
+    reasons.push(`optimized 离线检索：字面=${fuzzy.toFixed(2)}；覆盖=${coverage.toFixed(2)}；骨架=${semantic.toFixed(2)}；惩罚=${penalty.toFixed(2)}`);
   }
 
   return {
@@ -305,8 +400,8 @@ function scoreMetric(metric, question, qNorm, qCore, grams) {
   };
 }
 
-function inferTopics(question, matches) {
-  const categories = [...new Set(matches.slice(0, 5).map((item) => item.category).filter(Boolean))];
+function inferTopics(question, matches, route) {
+  const categories = [...new Set([...(route.categories || []), ...matches.slice(0, 5).map((item) => item.category)].filter(Boolean))];
   const keywords = stripStopWords(normalizeText(question))
     .split("")
     .filter((char, index, arr) => char && arr.indexOf(char) === index)
@@ -337,6 +432,89 @@ function buildWebQueries(question, gaps, topics) {
   const categoryPart = topics.categories.slice(0, 2).join(" ");
   const base = [core, categoryPart].filter(Boolean).join(" ");
   return webSourceHints.slice(0, 4).map((source) => `${source} ${base}`.trim());
+}
+
+function fuzzyScore(query, text) {
+  const q = normalizeText(query);
+  const t = normalizeText(text);
+  if (!q || !t) return 0;
+  if (t.includes(q) || q.includes(t)) return 0.96;
+  const grams = makeNgrams(q);
+  if (!grams.length) return 0;
+  return grams.filter((gram) => t.includes(gram)).length / grams.length;
+}
+
+function charCoverageScore(query, metricName) {
+  const q = normalizeForMatch(query);
+  const m = normalizeForMatch(metricName);
+  const core = queryCoreText(query);
+  if (!m) return 0;
+  if (m.includes(q) || q.includes(m) || (core && core === m)) return 1;
+  if (core && (core.includes(m) || m.includes(core))) return 0.92;
+  return [...m].filter((char) => q.includes(char)).length / Math.max([...m].length, 1);
+}
+
+function tokenCoverageScore(query, metricName) {
+  const q = normalizeForMatch(query);
+  const chars = [...normalizeForMatch(metricName)];
+  if (!chars.length) return 0;
+  const chunks = [];
+  for (let i = 0; i < chars.length; i += 2) {
+    chunks.push(chars.slice(i, i + 2).join(""));
+  }
+  return chunks.filter((chunk) => chunk && q.includes(chunk)).length / chunks.length;
+}
+
+function coverageScore(query, metricName) {
+  return 0.65 * charCoverageScore(query, metricName) + 0.35 * tokenCoverageScore(query, metricName);
+}
+
+function semanticScore(query, metric) {
+  let score = 0;
+  for (const alias of metric.aliases) {
+    if (alias.length >= 3 && (query.includes(alias) || alias.includes(query))) {
+      score = Math.max(score, 0.35);
+    }
+  }
+  if (metric.object && metric.object.length >= 2 && query.includes(metric.object)) score += 0.12;
+  for (const condition of metric.conditions) {
+    if (condition.length >= 2 && query.includes(condition)) score += 0.12;
+  }
+  if (metric.property === "是否" && /是否|有没有|有无|能否|做了没有/.test(query)) {
+    score += 0.18;
+  } else if (metric.property && metric.property.length >= 2 && query.includes(metric.property)) {
+    score += 0.08;
+  }
+  if (metric.isBroadMetric && !query.includes(metric.name)) score -= 0.18;
+  return Math.max(0, Math.min(score, 0.55));
+}
+
+function broadMetricPenalty(query, metric) {
+  const normalizedMetric = normalizeForMatch(metric.name);
+  const normalizedQuery = normalizeForMatch(query);
+  if (normalizedMetric && normalizedQuery.includes(normalizedMetric)) return 0;
+  if (broadMetricNames.has(metric.name)) return 0.22;
+  if (normalizedMetric.length <= 3 && /数|量|人|户/.test(metric.name)) return 0.18;
+  if (metric.isBroadMetric) return 0.12;
+  if (metric.name.endsWith("情况") && !query.includes(metric.name)) return 0.12;
+  if (/是否|有没有|有无|能否|做了没有/.test(query) && metric.property !== "是否") return 0.1;
+  return 0;
+}
+
+function normalizeForMatch(value) {
+  return String(value || "").replace(/[ \t\n\r（）()，,：:、\-_]/g, "").trim();
+}
+
+function queryCoreText(query) {
+  let core = normalizeForMatch(query);
+  for (const word of [...stopWords].sort((a, b) => b.length - a.length)) {
+    core = core.replaceAll(normalizeForMatch(word), "");
+  }
+  return core.trim();
+}
+
+function uniqueByName(item, index, array) {
+  return array.findIndex((candidate) => candidate.name === item.name) === index;
 }
 
 function buildLocalReply(result) {
@@ -372,6 +550,9 @@ function buildLocalReply(result) {
 
   return `问题理解：
 你想围绕“${result.question}”寻找可用统计指标，并据此形成一个简短分析口径。
+
+检索策略：
+当前使用 ${result.optimizedVersion}。问题被路由为 ${result.route.queryType}，优先关注 ${result.route.categories.join("、") || "全部分类"}。
 
 现有指标匹配：
 ${coverageText}
