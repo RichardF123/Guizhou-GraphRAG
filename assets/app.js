@@ -21,11 +21,26 @@ const localWords = ["是否", "有没有", "有无", "能否", "做了没有", "
 const compareWords = ["比较", "对比", "区别", "差异", "分别"];
 
 const webSourceHints = [
-  "贵州省统计局",
-  "贵州统计年鉴",
-  "贵州省国民经济和社会发展统计公报",
-  "国家统计局",
-  "贵州省人民政府 数据"
+  {
+    title: "贵州省统计局",
+    note: "优先核对贵州本地统计口径、统计公报和年鉴资料",
+    query: "贵州省统计局",
+  },
+  {
+    title: "贵州统计年鉴",
+    note: "适合查年度指标、地区分组和较完整的时间序列",
+    query: "贵州统计年鉴",
+  },
+  {
+    title: "贵州统计公报",
+    note: "适合快速了解年度经济社会发展概况",
+    query: "贵州省 国民经济和社会发展统计公报",
+  },
+  {
+    title: "国家统计局",
+    note: "需要全国或跨省比较时，再用这里核对统一口径",
+    query: "国家统计局",
+  },
 ];
 
 const chatHistoryKey = "guizhou-chat-history-v2";
@@ -441,7 +456,14 @@ function buildWebQueries(question, gaps, topics) {
   const core = stripStopWords(question).replace(/\s+/g, " ").trim();
   const categoryPart = topics.categories.slice(0, 2).join(" ");
   const base = [core, categoryPart].filter(Boolean).join(" ");
-  return webSourceHints.slice(0, 4).map((source) => `${source} ${base}`.trim());
+  return webSourceHints.map((source) => {
+    const query = `${source.query} ${base}`.trim();
+    return {
+      title: source.title,
+      note: source.note,
+      url: `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
+    };
+  });
 }
 
 function fuzzyScore(query, text) {
@@ -556,12 +578,9 @@ function buildLocalReply(result) {
 
   const webLines = result.webQueries.length
     ? result.webQueries
-        .map((query) => {
-          const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
-          return `- ${query}\n  ${url}`;
-        })
+        .map((source) => `- [${source.title}](${source.url})：${source.note}`)
         .join("\n")
-    : "- 暂不需要联网补充。";
+    : "- 暂时不用查外部资料，先把现有指标跑通就行。";
 
   const categoryText = result.inferredTopics.categories.slice(0, 3).join("、") || "相关";
 
@@ -581,7 +600,7 @@ ${supportingLines}
 还需要注意：
 ${gapLines}
 
-如果要补充公开资料，可以搜：
+可能还要看的公开来源：
 ${webLines}`;
 }
 
@@ -756,12 +775,12 @@ function escapeHtml(value) {
 function formatMessage(value) {
   let html = escapeHtml(value);
   html = html.replace(
-    /(^|\n)(我理解你想看的是|建议先看这几个指标|可以作为辅助观察的指标|怎么用|还需要注意|如果要补充公开资料，可以搜)：/g,
+    /(^|\n)(我理解你想看的是|建议先看这几个指标|可以作为辅助观察的指标|怎么用|还需要注意|可能还要看的公开来源)：/g,
     '$1<strong class="reply-heading">$2：</strong>'
   );
   html = html.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noreferrer">$1</a>'
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer">$1</a>'
   );
   return html;
 }
