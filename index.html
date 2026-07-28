@@ -11,164 +11,150 @@
   </head>
   <body>
     <main class="app-shell">
-      <aside class="side-panel">
-        <section class="brand-block" aria-label="应用信息">
+      <header class="topbar">
+        <div class="brand-block" aria-label="应用信息">
           <div class="brand-mark" aria-hidden="true">
-            <i data-lucide="network"></i>
+            <i data-lucide="radar"></i>
           </div>
           <div>
             <h1>贵州统计指标助手</h1>
-            <p>用自然语言找到合适的统计指标，并整理分析口径。</p>
+            <p>自然语言提问，自动匹配指标、口径和公开来源。</p>
           </div>
-        </section>
+        </div>
+        <div class="header-actions">
+          <button class="icon-button" id="resetChat" type="button" title="清空对话" aria-label="清空对话">
+            <i data-lucide="rotate-ccw"></i>
+          </button>
+          <button class="icon-button" id="exportChat" type="button" title="导出对话" aria-label="导出对话">
+            <i data-lucide="download"></i>
+          </button>
+        </div>
+      </header>
 
-        <section class="panel-section dataset-card">
-          <div class="section-title">
-            <i data-lucide="database" aria-hidden="true"></i>
-            <h2>指标库</h2>
+      <section class="hero-query" aria-label="指标匹配输入">
+        <div class="query-intro">
+          <p class="eyebrow">Indicator Agent</p>
+          <h2>输入问题，<br />拿到指标口径和分析线索</h2>
+          <p class="hero-copy">先查本地指标集；不够的部分，直接补公开来源链接。</p>
+        </div>
+
+        <div class="query-workbench">
+          <form class="composer" id="chatForm">
+            <textarea
+              id="userInput"
+              rows="2"
+              placeholder="例如：我想了解村里人口老龄化情况，可以看哪些指标..."
+              required
+            ></textarea>
+            <button class="send-button" type="submit" aria-label="发送">
+              <i data-lucide="send"></i>
+            </button>
+          </form>
+
+          <div class="prompt-row" aria-label="示例问题">
+            <button class="prompt-chip" type="button">村里人口老龄化情况看哪些指标？</button>
+            <button class="prompt-chip" type="button">产业发展和集体经济有哪些相关指标？</button>
+            <button class="prompt-chip" type="button">农村水利设施包括哪些统计项？</button>
+            <button class="prompt-chip" type="button">村庄建设里道路和厕所怎么看？</button>
           </div>
-          <p class="hint" id="metricSummary">正在加载贵州统计指标集...</p>
-          <div class="metric-list" id="metricList"></div>
-        </section>
+        </div>
 
-        <section class="panel-section examples">
-          <div class="section-title">
-            <i data-lucide="message-square-text" aria-hidden="true"></i>
-            <h2>可以这样问</h2>
-          </div>
-          <button class="prompt-chip" type="button">村里人口老龄化情况看哪些指标？</button>
-          <button class="prompt-chip" type="button">产业发展和集体经济有哪些相关指标？</button>
-          <button class="prompt-chip" type="button">农村水利设施包括哪些统计项？</button>
-          <button class="prompt-chip" type="button">村庄建设里道路和厕所怎么看？</button>
-        </section>
-
-        <section class="panel-section settings">
-          <details>
-            <summary>
-              <span><i data-lucide="settings-2" aria-hidden="true"></i> 高级设置</span>
-              <i data-lucide="chevron-down" aria-hidden="true"></i>
-            </summary>
-            <div class="settings-body">
-              <label class="metric-access">
-                <span>指标集接口</span>
-                <input id="metricEndpoint" type="url" placeholder="https://你的后端/api/metrics" autocomplete="off" />
-              </label>
-              <label class="metric-access">
-                <span>访问令牌</span>
-                <input id="metricAccessToken" type="password" placeholder="由管理员分配" autocomplete="off" />
-              </label>
-              <button class="secondary-button" id="loadMetrics" type="button">
-                <i data-lucide="key-round" aria-hidden="true"></i>
-                重新加载指标集
-              </button>
-              <label>
-                <span>AI API 地址</span>
-                <input id="apiBaseUrl" type="url" placeholder="https://你的代理接口/v1/chat/completions" autocomplete="off" />
-              </label>
-              <label>
-                <span>模型</span>
-                <input id="modelName" type="text" placeholder="gpt-4.1-mini" autocomplete="off" />
-              </label>
-              <label>
-                <span>API Key</span>
-                <input id="apiKey" type="password" placeholder="仅本机测试使用" autocomplete="off" />
-              </label>
-              <button class="secondary-button" id="saveSettings" type="button">
-                <i data-lucide="save" aria-hidden="true"></i>
-                保存配置
-              </button>
-            </div>
-          </details>
-        </section>
-      </aside>
-
-      <section class="chat-panel" aria-label="智能对话">
-        <header class="chat-header">
+        <div class="signal-grid" aria-label="当前能力">
           <div>
-            <p class="eyebrow">Guizhou Indicator Intelligence</p>
-            <h2>自然语言指标匹配</h2>
+            <span>本地指标</span>
+            <strong>2098</strong>
           </div>
-          <div class="header-actions">
-            <button class="icon-button" id="resetChat" type="button" title="清空对话" aria-label="清空对话">
-              <i data-lucide="rotate-ccw"></i>
-            </button>
-            <button class="icon-button" id="exportChat" type="button" title="导出对话" aria-label="导出对话">
-              <i data-lucide="download"></i>
-            </button>
+          <div>
+            <span>覆盖分类</span>
+            <strong>26</strong>
           </div>
-        </header>
+          <div>
+            <span>输出内容</span>
+            <strong>指标 + 口径 + 链接</strong>
+          </div>
+        </div>
+      </section>
 
-        <div class="workspace-grid">
-          <section class="conversation-area" aria-label="指标匹配对话">
-            <div class="status-strip">
-              <div>
-                <strong>当前模式</strong>
-                <span>先查本地指标库，再补公开来源。</span>
-              </div>
-              <div class="status-tags" aria-label="输出内容">
-                <span>指标建议</span>
-                <span>口径提醒</span>
-                <span>分析草稿</span>
-              </div>
-              <label class="sr-only" for="knowledgeBase">匹配策略</label>
-              <textarea id="knowledgeBase" rows="5"></textarea>
+      <section class="result-shell">
+        <section class="chat-panel" aria-label="智能对话">
+          <div class="status-strip">
+            <div>
+              <strong>匹配结果</strong>
+              <span>回答会保留指标、口径和外部来源入口。</span>
             </div>
+            <div class="status-tags" aria-label="输出内容">
+              <span>指标建议</span>
+              <span>口径提醒</span>
+              <span>分析草稿</span>
+            </div>
+            <label class="sr-only" for="knowledgeBase">匹配策略</label>
+            <textarea id="knowledgeBase" rows="5"></textarea>
+          </div>
+          <div class="chat-stream" id="chatStream" aria-live="polite"></div>
+        </section>
 
-            <div class="chat-stream" id="chatStream" aria-live="polite"></div>
-
-            <form class="composer" id="chatForm">
-              <textarea
-                id="userInput"
-                rows="2"
-                placeholder="输入问题，例如：我想了解村里人口老龄化情况，可以看哪些指标..."
-                required
-              ></textarea>
-              <button class="send-button" type="submit" aria-label="发送">
-                <i data-lucide="send"></i>
-              </button>
-            </form>
+        <aside class="side-panel">
+          <section class="panel-section dataset-card">
+            <div class="section-title">
+              <i data-lucide="database" aria-hidden="true"></i>
+              <h2>指标库</h2>
+            </div>
+            <p class="hint" id="metricSummary">正在加载贵州统计指标集...</p>
+            <div class="metric-list" id="metricList"></div>
           </section>
 
-          <aside class="insight-panel" aria-label="分析输出说明">
-            <section>
-              <p class="rail-label">输出结构</p>
-              <div class="rail-step">
-                <span>1</span>
-                <div>
-                  <strong>识别问题</strong>
-                  <p>判断主题、对象、时间和比较口径。</p>
-                </div>
-              </div>
-              <div class="rail-step">
-                <span>2</span>
-                <div>
-                  <strong>匹配指标</strong>
-                  <p>从 2098 条指标中选主指标和辅助指标。</p>
-                </div>
-              </div>
-              <div class="rail-step">
-                <span>3</span>
-                <div>
-                  <strong>形成口径</strong>
-                  <p>说明怎么用，缺什么数据，去哪核对。</p>
-                </div>
-              </div>
-            </section>
+          <section class="source-panel">
+            <p class="rail-label">常用公开来源</p>
+            <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%9C%81%E7%BB%9F%E8%AE%A1%E5%B1%80" target="_blank" rel="noreferrer">
+              贵州省统计局
+            </a>
+            <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%BB%9F%E8%AE%A1%E5%B9%B4%E9%89%B4" target="_blank" rel="noreferrer">
+              贵州统计年鉴
+            </a>
+            <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%9C%81+%E7%BB%9F%E8%AE%A1%E5%85%AC%E6%8A%A5" target="_blank" rel="noreferrer">
+              贵州统计公报
+            </a>
+          </section>
 
-            <section class="source-panel">
-              <p class="rail-label">公开来源</p>
-              <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%9C%81%E7%BB%9F%E8%AE%A1%E5%B1%80" target="_blank" rel="noreferrer">
-                贵州省统计局
-              </a>
-              <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%BB%9F%E8%AE%A1%E5%B9%B4%E9%89%B4" target="_blank" rel="noreferrer">
-                贵州统计年鉴
-              </a>
-              <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%9C%81+%E7%BB%9F%E8%AE%A1%E5%85%AC%E6%8A%A5" target="_blank" rel="noreferrer">
-                贵州统计公报
-              </a>
-            </section>
-          </aside>
-        </div>
+          <section class="panel-section settings">
+            <details>
+              <summary>
+                <span><i data-lucide="settings-2" aria-hidden="true"></i> 高级设置</span>
+                <i data-lucide="chevron-down" aria-hidden="true"></i>
+              </summary>
+              <div class="settings-body">
+                <label class="metric-access">
+                  <span>指标集接口</span>
+                  <input id="metricEndpoint" type="url" placeholder="https://你的后端/api/metrics" autocomplete="off" />
+                </label>
+                <label class="metric-access">
+                  <span>访问令牌</span>
+                  <input id="metricAccessToken" type="password" placeholder="由管理员分配" autocomplete="off" />
+                </label>
+                <button class="secondary-button" id="loadMetrics" type="button">
+                  <i data-lucide="key-round" aria-hidden="true"></i>
+                  重新加载指标集
+                </button>
+                <label>
+                  <span>AI API 地址</span>
+                  <input id="apiBaseUrl" type="url" placeholder="https://你的代理接口/v1/chat/completions" autocomplete="off" />
+                </label>
+                <label>
+                  <span>模型</span>
+                  <input id="modelName" type="text" placeholder="gpt-4.1-mini" autocomplete="off" />
+                </label>
+                <label>
+                  <span>API Key</span>
+                  <input id="apiKey" type="password" placeholder="仅本机测试使用" autocomplete="off" />
+                </label>
+                <button class="secondary-button" id="saveSettings" type="button">
+                  <i data-lucide="save" aria-hidden="true"></i>
+                  保存配置
+                </button>
+              </div>
+            </details>
+          </section>
+        </aside>
       </section>
     </main>
   </body>
