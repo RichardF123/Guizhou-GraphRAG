@@ -28,11 +28,15 @@ const webSourceHints = [
   "贵州省人民政府 数据"
 ];
 
+const chatHistoryKey = "guizhou-chat-history-v2";
+const settingsKey = "design-chat-settings";
+const knowledgeKey = "design-knowledge";
+
 const state = {
-  messages: loadJson("design-chat-history", []),
+  messages: loadJson(chatHistoryKey, []),
   metrics: [],
   metricPayload: null,
-  settings: loadJson("design-chat-settings", {
+  settings: loadJson(settingsKey, {
     apiBaseUrl: "",
     modelName: "gpt-4.1-mini",
     apiKey: "",
@@ -73,7 +77,7 @@ function saveJson(key, value) {
 
 async function init() {
   hydrateSettings();
-  els.knowledgeBase.value = localStorage.getItem("design-knowledge") || defaultKnowledge;
+  els.knowledgeBase.value = localStorage.getItem(knowledgeKey) || defaultKnowledge;
   bindEvents();
   await loadBuiltInMetrics();
   renderMessages();
@@ -81,7 +85,7 @@ async function init() {
   if (!state.messages.length) {
     addMessage(
       "assistant",
-      "你好，我已经载入贵州统计指标集。你可以直接用自然语言提问，比如“村里养老相关怎么看”“产业发展有哪些指标”“农村水利设施包括哪些”。我会先匹配现有指标，覆盖不足时再给出联网补充检索和简短报告。"
+      "你好，我已经载入贵州统计指标库。你可以直接问一个分析问题，我会先帮你挑出能用的指标，再说明这些指标分别适合回答什么。要是库里不够，我会把需要外部补充的方向列出来。"
     );
   }
 
@@ -171,8 +175,14 @@ function hydrateSettings() {
 
 function bindEvents() {
   els.chatForm.addEventListener("submit", handleSubmit);
+  document.querySelectorAll(".prompt-chip").forEach((button) => {
+    button.addEventListener("click", () => {
+      els.userInput.value = button.textContent.trim();
+      els.userInput.focus();
+    });
+  });
   els.knowledgeBase.addEventListener("input", () => {
-    localStorage.setItem("design-knowledge", els.knowledgeBase.value);
+    localStorage.setItem(knowledgeKey, els.knowledgeBase.value);
   });
   els.loadMetrics.addEventListener("click", loadProtectedMetrics);
   els.saveSettings.addEventListener("click", saveSettings);
@@ -387,7 +397,7 @@ function scoreMetric(metric, question, qNorm, qCore, grams, routeCategories = ne
 
   score = Math.max(0, Math.min(0.99, score));
   if (!reasons.length && (fuzzy > 0 || coverage > 0)) {
-    reasons.push(`optimized 离线检索：字面=${fuzzy.toFixed(2)}；覆盖=${coverage.toFixed(2)}；骨架=${semantic.toFixed(2)}；惩罚=${penalty.toFixed(2)}`);
+    reasons.push("与问题表述和指标口径接近");
   }
 
   return {
@@ -518,26 +528,31 @@ function uniqueByName(item, index, array) {
 }
 
 function buildLocalReply(result) {
-  const matchLines = result.matches.length
-    ? result.matches
-        .slice(0, 6)
+  const primary = result.matches.slice(0, 3);
+  const supporting = result.matches.slice(3, 6);
+  const primaryLines = primary.length
+    ? primary
         .map((item, index) => {
-          const source = item.source ? `；来源：${item.source}` : "";
-          const desc = item.desc ? `\n   口径：${truncate(item.desc, 92)}` : "";
-          return `${index + 1}. ${item.name}（${item.category}，匹配度 ${Math.round(item.score * 100)}%）\n   推荐理由：${item.reason}${source}${desc}`;
+          const source = item.source ? `，建议按${item.source}口径核对` : "";
+          const desc = item.desc ? `\n   ${truncate(item.desc, 86)}` : "";
+          return `${index + 1}. ${item.name}（${item.category}）${source}${desc}`;
         })
         .join("\n")
-    : "没有在现有指标集中找到足够可靠的匹配。";
+    : "这次没有找到特别直接的现有指标。";
+
+  const supportingLines = supporting.length
+    ? supporting.map((item) => `- ${item.name}（${item.category}）`).join("\n")
+    : "- 暂时不需要更多辅助指标。";
 
   const coverageText = {
-    full: "现有指标基本可以覆盖这个问题。",
-    partial: "现有指标只能覆盖一部分，需要补充口径或数据。",
-    low: "现有指标匹配较弱，建议进入联网补充检索。",
+    full: "这个问题用现有指标库基本能回答。",
+    partial: "现有指标能回答一部分，但还需要补充数据口径或时间序列。",
+    low: "库里没有特别贴合的指标，建议把它当作探索性问题处理。",
   }[result.coverage];
 
   const gapLines = result.gaps.length
     ? result.gaps.map((gap) => `- ${gap}`).join("\n")
-    : "- 暂未发现明显缺口，优先使用上面的授权指标。";
+    : "- 先用上面的指标就可以展开，不必急着补外部资料。";
 
   const webLines = result.webQueries.length
     ? result.webQueries
@@ -546,26 +561,28 @@ function buildLocalReply(result) {
           return `- ${query}\n  ${url}`;
         })
         .join("\n")
-    : "- 当前匹配较充分，暂不需要联网补充。";
+    : "- 暂不需要联网补充。";
 
-  return `问题理解：
-你想围绕“${result.question}”寻找可用统计指标，并据此形成一个简短分析口径。
+  const categoryText = result.inferredTopics.categories.slice(0, 3).join("、") || "相关";
 
-检索策略：
-当前使用 ${result.optimizedVersion}。问题被路由为 ${result.route.queryType}，优先关注 ${result.route.categories.join("、") || "全部分类"}。
+  return `我理解你想看的是：${result.question}
 
-现有指标匹配：
 ${coverageText}
-${matchLines}
 
-缺口判断：
+建议先看这几个指标：
+${primaryLines}
+
+可以作为辅助观察的指标：
+${supportingLines}
+
+怎么用：
+先把「${categoryText}」相关指标按年份整理出来，看总量变化；如果涉及人群、设施或产业，再拆到结构指标看是哪一部分在变化。正式写报告时，主指标回答问题，辅助指标解释原因或做侧面印证。
+
+还需要注意：
 ${gapLines}
 
-联网补充建议：
-${webLines}
-
-简短统计分析报告：
-建议先以上述匹配度最高的指标作为主指标，再用同分类下的辅助指标交叉验证。如果问题涉及趋势，应按年度整理指标值，观察总量变化和结构变化；如果涉及比较，应统一统计口径后再做地区或时间对比。对于联网补充得到的公开资料，需要保留来源、发布时间和口径说明，正式结论仍以贵州统计局授权指标和数据为准。`;
+如果要补充公开资料，可以搜：
+${webLines}`;
 }
 
 async function loadProtectedMetrics() {
@@ -663,7 +680,7 @@ function updateMessage(id, content) {
 
 function persistMessages() {
   saveJson(
-    "design-chat-history",
+    chatHistoryKey,
     state.messages.filter((item) => !item.transient)
   );
 }
@@ -676,7 +693,7 @@ function renderMessages() {
           <div class="avatar" aria-hidden="true">
             <i data-lucide="${message.role === "user" ? "user" : "sparkles"}"></i>
           </div>
-          <div class="bubble ${message.transient ? "typing" : ""}">${escapeHtml(message.content)}</div>
+          <div class="bubble ${message.transient ? "typing" : ""}">${formatMessage(message.content)}</div>
         </article>
       `
     )
@@ -693,7 +710,7 @@ function saveSettings(showFeedback = true) {
     metricEndpoint: els.metricEndpoint.value.trim(),
     metricAccessToken: "",
   };
-  saveJson("design-chat-settings", state.settings);
+  saveJson(settingsKey, state.settings);
   if (!showFeedback) return;
   els.saveSettings.textContent = "已保存";
   setTimeout(() => {
@@ -706,7 +723,7 @@ function resetChat() {
   state.messages = [];
   persistMessages();
   renderMessages();
-  addMessage("assistant", "对话已清空。请输入新的贵州统计指标问题。");
+  addMessage("assistant", "对话已清空。你可以继续问一个统计分析问题。");
 }
 
 function exportChat() {
@@ -734,6 +751,19 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function formatMessage(value) {
+  let html = escapeHtml(value);
+  html = html.replace(
+    /(^|\n)(我理解你想看的是|建议先看这几个指标|可以作为辅助观察的指标|怎么用|还需要注意|如果要补充公开资料，可以搜)：/g,
+    '$1<strong class="reply-heading">$2：</strong>'
+  );
+  html = html.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noreferrer">$1</a>'
+  );
+  return html;
 }
 
 function refreshIcons() {

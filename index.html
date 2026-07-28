@@ -17,54 +17,68 @@
             <i data-lucide="network"></i>
           </div>
           <div>
-            <h1>贵州统计指标匹配 Agent</h1>
-            <p>面向贵州统计局指标集，把自然语言问题匹配到可用指标。</p>
+            <h1>贵州统计指标助手</h1>
+            <p>用自然语言找到合适的统计指标，并整理分析口径。</p>
           </div>
         </section>
 
-        <section class="panel-section">
+        <section class="panel-section dataset-card">
           <div class="section-title">
             <i data-lucide="database" aria-hidden="true"></i>
-            <h2>内置指标集</h2>
+            <h2>指标库</h2>
           </div>
           <p class="hint" id="metricSummary">正在加载贵州统计指标集...</p>
-          <label class="metric-access">
-            <span>可选：指标集接口</span>
-            <input id="metricEndpoint" type="url" placeholder="https://你的后端/api/metrics" autocomplete="off" />
-          </label>
-          <label class="metric-access">
-            <span>访问令牌</span>
-            <input id="metricAccessToken" type="password" placeholder="由管理员分配" autocomplete="off" />
-          </label>
-          <button class="secondary-button" id="loadMetrics" type="button">
-            <i data-lucide="key-round" aria-hidden="true"></i>
-            重新加载指标集
-          </button>
           <div class="metric-list" id="metricList"></div>
         </section>
 
-        <section class="panel-section settings">
+        <section class="panel-section examples">
           <div class="section-title">
-            <i data-lucide="plug-zap" aria-hidden="true"></i>
-            <h2>AI 接口</h2>
+            <i data-lucide="message-square-text" aria-hidden="true"></i>
+            <h2>可以这样问</h2>
           </div>
-          <label>
-            <span>API 地址</span>
-            <input id="apiBaseUrl" type="url" placeholder="https://你的代理接口/v1/chat/completions" autocomplete="off" />
-          </label>
-          <label>
-            <span>模型</span>
-            <input id="modelName" type="text" placeholder="gpt-4.1-mini" autocomplete="off" />
-          </label>
-          <label>
-            <span>API Key</span>
-            <input id="apiKey" type="password" placeholder="仅本机测试使用" autocomplete="off" />
-          </label>
-          <button class="secondary-button" id="saveSettings" type="button">
-            <i data-lucide="save" aria-hidden="true"></i>
-            保存配置
-          </button>
-          <p class="hint">配置后可调用模型生成更自然的报告；不配置也能用内置指标集做本地匹配。</p>
+          <button class="prompt-chip" type="button">村里人口老龄化情况看哪些指标？</button>
+          <button class="prompt-chip" type="button">产业发展和集体经济有哪些相关指标？</button>
+          <button class="prompt-chip" type="button">农村水利设施包括哪些统计项？</button>
+          <button class="prompt-chip" type="button">村庄建设里道路和厕所怎么看？</button>
+        </section>
+
+        <section class="panel-section settings">
+          <details>
+            <summary>
+              <span><i data-lucide="settings-2" aria-hidden="true"></i> 高级设置</span>
+              <i data-lucide="chevron-down" aria-hidden="true"></i>
+            </summary>
+            <div class="settings-body">
+              <label class="metric-access">
+                <span>指标集接口</span>
+                <input id="metricEndpoint" type="url" placeholder="https://你的后端/api/metrics" autocomplete="off" />
+              </label>
+              <label class="metric-access">
+                <span>访问令牌</span>
+                <input id="metricAccessToken" type="password" placeholder="由管理员分配" autocomplete="off" />
+              </label>
+              <button class="secondary-button" id="loadMetrics" type="button">
+                <i data-lucide="key-round" aria-hidden="true"></i>
+                重新加载指标集
+              </button>
+              <label>
+                <span>AI API 地址</span>
+                <input id="apiBaseUrl" type="url" placeholder="https://你的代理接口/v1/chat/completions" autocomplete="off" />
+              </label>
+              <label>
+                <span>模型</span>
+                <input id="modelName" type="text" placeholder="gpt-4.1-mini" autocomplete="off" />
+              </label>
+              <label>
+                <span>API Key</span>
+                <input id="apiKey" type="password" placeholder="仅本机测试使用" autocomplete="off" />
+              </label>
+              <button class="secondary-button" id="saveSettings" type="button">
+                <i data-lucide="save" aria-hidden="true"></i>
+                保存配置
+              </button>
+            </div>
+          </details>
         </section>
       </aside>
 
@@ -72,7 +86,7 @@
         <header class="chat-header">
           <div>
             <p class="eyebrow">Guizhou GraphRAG Agent</p>
-            <h2>指标匹配与报告工作台</h2>
+            <h2>问一句，匹配指标</h2>
           </div>
           <div class="header-actions">
             <button class="icon-button" id="resetChat" type="button" title="清空对话" aria-label="清空对话">
@@ -84,8 +98,17 @@
           </div>
         </header>
 
-        <div class="knowledge-card">
-          <label for="knowledgeBase">匹配策略</label>
+        <div class="status-strip">
+          <div>
+            <strong>当前模式</strong>
+            <span>优先匹配本地指标库；不足时给出联网补充方向。</span>
+          </div>
+          <div class="status-tags" aria-label="输出内容">
+            <span>指标建议</span>
+            <span>口径提醒</span>
+            <span>分析草稿</span>
+          </div>
+          <label class="sr-only" for="knowledgeBase">匹配策略</label>
           <textarea id="knowledgeBase" rows="5"></textarea>
         </div>
 
