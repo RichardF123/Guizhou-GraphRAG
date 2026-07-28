@@ -123,3 +123,5 @@ http://localhost:8080
 - 对匹配结果增加置信度和解释。
 - 支持按地区、年份、主题继续追问。
 - 将对话结果整理成可导出的指标清单。
+
+Agent 的完整设计见 [AGENT_DESIGN.md](AGENT_DESIGN.md)。
