@@ -85,8 +85,8 @@
       <section class="chat-panel" aria-label="智能对话">
         <header class="chat-header">
           <div>
-            <p class="eyebrow">Guizhou GraphRAG Agent</p>
-            <h2>问一句，匹配指标</h2>
+            <p class="eyebrow">Guizhou Indicator Intelligence</p>
+            <h2>自然语言指标匹配</h2>
           </div>
           <div class="header-actions">
             <button class="icon-button" id="resetChat" type="button" title="清空对话" aria-label="清空对话">
@@ -98,33 +98,77 @@
           </div>
         </header>
 
-        <div class="status-strip">
-          <div>
-            <strong>当前模式</strong>
-            <span>优先匹配本地指标库；不足时给出联网补充方向。</span>
-          </div>
-          <div class="status-tags" aria-label="输出内容">
-            <span>指标建议</span>
-            <span>口径提醒</span>
-            <span>分析草稿</span>
-          </div>
-          <label class="sr-only" for="knowledgeBase">匹配策略</label>
-          <textarea id="knowledgeBase" rows="5"></textarea>
+        <div class="workspace-grid">
+          <section class="conversation-area" aria-label="指标匹配对话">
+            <div class="status-strip">
+              <div>
+                <strong>当前模式</strong>
+                <span>先查本地指标库，再补公开来源。</span>
+              </div>
+              <div class="status-tags" aria-label="输出内容">
+                <span>指标建议</span>
+                <span>口径提醒</span>
+                <span>分析草稿</span>
+              </div>
+              <label class="sr-only" for="knowledgeBase">匹配策略</label>
+              <textarea id="knowledgeBase" rows="5"></textarea>
+            </div>
+
+            <div class="chat-stream" id="chatStream" aria-live="polite"></div>
+
+            <form class="composer" id="chatForm">
+              <textarea
+                id="userInput"
+                rows="2"
+                placeholder="输入问题，例如：我想了解村里人口老龄化情况，可以看哪些指标..."
+                required
+              ></textarea>
+              <button class="send-button" type="submit" aria-label="发送">
+                <i data-lucide="send"></i>
+              </button>
+            </form>
+          </section>
+
+          <aside class="insight-panel" aria-label="分析输出说明">
+            <section>
+              <p class="rail-label">输出结构</p>
+              <div class="rail-step">
+                <span>1</span>
+                <div>
+                  <strong>识别问题</strong>
+                  <p>判断主题、对象、时间和比较口径。</p>
+                </div>
+              </div>
+              <div class="rail-step">
+                <span>2</span>
+                <div>
+                  <strong>匹配指标</strong>
+                  <p>从 2098 条指标中选主指标和辅助指标。</p>
+                </div>
+              </div>
+              <div class="rail-step">
+                <span>3</span>
+                <div>
+                  <strong>形成口径</strong>
+                  <p>说明怎么用，缺什么数据，去哪核对。</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="source-panel">
+              <p class="rail-label">公开来源</p>
+              <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%9C%81%E7%BB%9F%E8%AE%A1%E5%B1%80" target="_blank" rel="noreferrer">
+                贵州省统计局
+              </a>
+              <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%BB%9F%E8%AE%A1%E5%B9%B4%E9%89%B4" target="_blank" rel="noreferrer">
+                贵州统计年鉴
+              </a>
+              <a href="https://www.bing.com/search?q=%E8%B4%B5%E5%B7%9E%E7%9C%81+%E7%BB%9F%E8%AE%A1%E5%85%AC%E6%8A%A5" target="_blank" rel="noreferrer">
+                贵州统计公报
+              </a>
+            </section>
+          </aside>
         </div>
-
-        <div class="chat-stream" id="chatStream" aria-live="polite"></div>
-
-        <form class="composer" id="chatForm">
-          <textarea
-            id="userInput"
-            rows="2"
-            placeholder="输入问题，例如：我想了解村里人口老龄化情况，可以看哪些指标..."
-            required
-          ></textarea>
-          <button class="send-button" type="submit" aria-label="发送">
-            <i data-lucide="send"></i>
-          </button>
-        </form>
       </section>
     </main>
   </body>
