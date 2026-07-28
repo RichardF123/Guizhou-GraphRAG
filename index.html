@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>设计指标智能匹配助手</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+    <script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script defer src="assets/app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="side-panel">
+        <section class="brand-block" aria-label="应用信息">
+          <div class="brand-mark" aria-hidden="true">
+            <i data-lucide="network"></i>
+          </div>
+          <div>
+            <h1>设计指标智能匹配助手</h1>
+            <p>把设计目标、约束和评价指标转成可执行的方案建议。</p>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-title">
+            <i data-lucide="lock-keyhole" aria-hidden="true"></i>
+            <h2>权限指标集</h2>
+          </div>
+          <label class="metric-access">
+            <span>指标集接口</span>
+            <input id="metricEndpoint" type="url" placeholder="https://你的后端/api/metrics" autocomplete="off" />
+          </label>
+          <label class="metric-access">
+            <span>访问令牌</span>
+            <input id="metricAccessToken" type="password" placeholder="由管理员分配" autocomplete="off" />
+          </label>
+          <button class="secondary-button" id="loadMetrics" type="button">
+            <i data-lucide="key-round" aria-hidden="true"></i>
+            加载指标集
+          </button>
+          <div class="metric-list" id="metricList"></div>
+        </section>
+
+        <section class="panel-section settings">
+          <div class="section-title">
+            <i data-lucide="plug-zap" aria-hidden="true"></i>
+            <h2>AI 接口</h2>
+          </div>
+          <label>
+            <span>API 地址</span>
+            <input id="apiBaseUrl" type="url" placeholder="https://你的代理接口/v1/chat/completions" autocomplete="off" />
+          </label>
+          <label>
+            <span>模型</span>
+            <input id="modelName" type="text" placeholder="gpt-4.1-mini" autocomplete="off" />
+          </label>
+          <label>
+            <span>API Key</span>
+            <input id="apiKey" type="password" placeholder="仅本机测试使用" autocomplete="off" />
+          </label>
+          <button class="secondary-button" id="saveSettings" type="button">
+            <i data-lucide="save" aria-hidden="true"></i>
+            保存配置
+          </button>
+          <p class="hint">公开部署时建议填写你自己的后端代理地址，不要把密钥写进仓库。</p>
+        </section>
+      </aside>
+
+      <section class="chat-panel" aria-label="智能对话">
+        <header class="chat-header">
+          <div>
+            <p class="eyebrow">GraphRAG Design Copilot</p>
+            <h2>方案问答工作台</h2>
+          </div>
+          <div class="header-actions">
+            <button class="icon-button" id="resetChat" type="button" title="清空对话" aria-label="清空对话">
+              <i data-lucide="rotate-ccw"></i>
+            </button>
+            <button class="icon-button" id="exportChat" type="button" title="导出对话" aria-label="导出对话">
+              <i data-lucide="download"></i>
+            </button>
+          </div>
+        </header>
+
+        <div class="knowledge-card">
+          <label for="knowledgeBase">设计指标匹配方案内容</label>
+          <textarea id="knowledgeBase" rows="5"></textarea>
+        </div>
+
+        <div class="chat-stream" id="chatStream" aria-live="polite"></div>
+
+        <form class="composer" id="chatForm">
+          <textarea
+            id="userInput"
+            rows="2"
+            placeholder="输入你的设计需求，例如：我想匹配城市更新项目的韧性、成本和碳排指标..."
+            required
+          ></textarea>
+          <button class="send-button" type="submit" aria-label="发送">
+            <i data-lucide="send"></i>
+          </button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>
