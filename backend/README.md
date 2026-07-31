@@ -27,7 +27,7 @@ Content-Type: application/json
 {"query":"村里没人照顾的老人有多少","top_k":5,"use_llm":true}
 ```
 
-打开 `http://127.0.0.1:8090/` 即可使用完整网页。后端负责本地图谱召回、相关性过滤、GraphRAG 路由和 Qwen 重排。浏览器不直接访问 Qwen 内网地址。
+打开 `http://127.0.0.1:8090/` 即可使用完整网页。后端负责本地图谱召回、相关性过滤、GraphRAG 路由、Qwen 检索规划和 Qwen 最终重排。浏览器不直接访问 Qwen 内网地址。
 
 环境变量：
 
