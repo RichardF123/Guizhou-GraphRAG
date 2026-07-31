@@ -595,6 +595,8 @@ function candidateHasMeaningfulEvidence(question, item) {
   const q = normalizeSemanticSynonyms(normalizeForMatch(question));
   const metric = normalizeSemanticSynonyms(normalizeForMatch(item.name));
   if (!q || !metric) return false;
+  // 单字指标只有在用户问题本身就是该完整指标时才允许命中。
+  if (q === metric) return metric.length >= 1;
   if (q.includes(metric) || metric.includes(q)) return metric.length >= 2;
   const aliases = (state.metrics.find((candidate) => candidate.name === item.name)?.aliases || [])
     .map((alias) => normalizeSemanticSynonyms(normalizeForMatch(alias)));
