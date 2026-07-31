@@ -3,7 +3,7 @@ import os
 import threading
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -74,6 +74,16 @@ def health():
         "llm_model": os.getenv("LLM_MODEL", "Qwen3.6-27B-NVFP4"),
         "graph_loaded": _graph_ns is not None,
     })
+
+
+@app.get("/")
+def index():
+    return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.get("/assets/<path:filename>")
+def assets(filename):
+    return send_from_directory(BASE_DIR / "assets", filename)
 
 
 @app.post("/api/search")
