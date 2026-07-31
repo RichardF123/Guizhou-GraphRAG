@@ -36,3 +36,11 @@ $env:LLM_BASE_URL = "http://172.20.0.133:8000/v1"
 $env:LLM_MODEL = "Qwen3.6-27B-NVFP4"
 $env:PORT = "8090"
 ```
+
+## 运行 100 条接口测试
+
+```powershell
+py -3.11 backend\run_api_100_tests.py
+```
+
+测试会真实调用 `/api/search` 和 Qwen，结果写入 `outputs/api_qwen_100_test_summary.json` 与 `outputs/api_qwen_100_test_details.csv`。
