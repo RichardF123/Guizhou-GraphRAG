@@ -1,4 +1,5 @@
 import json
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -29,7 +30,10 @@ def split(value):
 
 
 def norm(value):
-    return "".join(str(value or "").replace(ch, "") for ch in " \t\n\r（）(),，：:")
+    text = str(value or "")
+    for ch in " \t\n\r（）(),，：:":
+        text = text.replace(ch, "")
+    return text
 
 
 def name_hit(predicted, expected):
@@ -90,6 +94,9 @@ def request_case(row):
 
 
 def main():
+    if "--recalculate" in sys.argv:
+        recalculate_existing()
+        return
     base = pd.read_csv(SOURCE_CASES, encoding="utf-8-sig").head(95).to_dict("records")
     cases = base + SPECIAL_CASES
     # 特殊样例放在末尾，方便在明细文件中快速定位。
@@ -114,7 +121,7 @@ def main():
         "category_recall": float(non_local.category_hit.mean()) if len(non_local) else 0.0,
         "short_exact_hit": bool(df.loc[df.id == "S02", "metric_top1_hit"].iloc[0]),
         "potato_noise_free": "马" not in str(df.loc[df.id == "S01", "predicted_metrics_top5"].iloc[0]).split(";"),
-        "request_error_count": int((df.error != "").sum()),
+        "request_error_count": int(df.error.fillna("").ne("").sum()),
     }
     df.to_csv(DETAIL_PATH, index=False, encoding="utf-8-sig")
     SUMMARY_PATH.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -122,6 +129,38 @@ def main():
     print("DETAIL_PATH=", DETAIL_PATH)
     print("SUMMARY_PATH=", SUMMARY_PATH)
     print(df[df.id.str.startswith("S")][["id", "query", "predicted_metrics_top5", "metric_rank"]].to_string(index=False))
+
+
+def recalculate_existing():
+    """只修正评估口径，不重新调用模型。"""
+    df = pd.read_csv(DETAIL_PATH, encoding="utf-8-sig")
+    for index, row in df.iterrows():
+        expected = split(row["expected_metrics"])
+        predicted = split(row["predicted_metrics_top5"])
+        rank = rank_of(predicted, expected)
+        df.at[index, "metric_rank"] = rank or ""
+        df.at[index, "metric_top1_hit"] = rank == 1
+        df.at[index, "metric_top5_hit"] = rank is not None
+    local = df[df.expected_type == "local"]
+    non_local = df[df.expected_type != "local"]
+    ranks = pd.to_numeric(local.metric_rank, errors="coerce")
+    summary = {
+        "version": "api_qwen_graphrag_100_recalculated",
+        "api_url": API_URL,
+        "total_cases": int(len(df)), "local_cases": int(len(local)),
+        "category_cases": int(len(non_local)), "top_k": 5, "use_llm": True,
+        "local_top1_accuracy": float(local.metric_top1_hit.mean()),
+        "local_recall_at_5": float(local.metric_top5_hit.mean()),
+        "local_mrr_at_5": float((1 / ranks).fillna(0).mean()),
+        "category_recall": float(non_local.category_hit.mean()) if len(non_local) else 0.0,
+        "short_exact_hit": bool(df.loc[df.id == "S02", "metric_top1_hit"].iloc[0]),
+        "potato_noise_free": "马" not in str(df.loc[df.id == "S01", "predicted_metrics_top5"].iloc[0]).split(";"),
+        "request_error_count": int(df.error.fillna("").ne("").sum()),
+    }
+    df.to_csv(DETAIL_PATH, index=False, encoding="utf-8-sig")
+    SUMMARY_PATH.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(df[(df.expected_type == "local") & (~df.metric_top1_hit)][["id", "query", "expected_metrics", "predicted_metrics_top5", "metric_rank"]].to_string(index=False))
 
 
 if __name__ == "__main__":
