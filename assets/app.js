@@ -20,6 +20,20 @@ const globalWords = ["哪些", "有哪些", "包括", "包含", "方面", "分�
 const localWords = ["是否", "有没有", "有无", "能否", "做了没有", "我想看", "查询", "多少", "有多少", "是多少"];
 const compareWords = ["比较", "对比", "区别", "差异", "分别"];
 
+// 查询归一只处理明确的同义词，不做宽泛的单字替换，避免“马铃薯”误召回“马”。
+const semanticSynonymGroups = [
+  ["马铃薯", "土豆", "洋芋"],
+  ["番茄", "西红柿"],
+  ["玉米", "苞米", "棒子"],
+  ["花生", "落花生"],
+  ["红薯", "地瓜", "甘薯"],
+  ["宽带", "互联网接入", "网络接入"],
+  ["厕所", "公共厕所", "公厕"],
+];
+const synonymCanonical = new Map(
+  semanticSynonymGroups.flatMap((group) => group.map((term) => [term, group[0]]))
+);
+
 const webSourceHints = [
   {
     title: "贵州省统计局",
@@ -52,8 +66,8 @@ const state = {
   metrics: [],
   metricPayload: null,
   settings: loadJson(settingsKey, {
-    apiBaseUrl: "",
-    modelName: "gpt-4.1-mini",
+    apiBaseUrl: "/api/search",
+    modelName: "Qwen3.6-27B-NVFP4",
     apiKey: "",
     metricEndpoint: "",
     metricAccessToken: "",
@@ -181,6 +195,11 @@ function metricsByCategory() {
 }
 
 function hydrateSettings() {
+  // 将旧版本保存的模型直连地址迁移到正式 GraphRAG 后端。
+  if (state.settings.apiBaseUrl.includes("172.20.0.133") || state.settings.apiBaseUrl.includes("chat/completions")) {
+    state.settings.apiBaseUrl = "/api/search";
+    saveJson(settingsKey, state.settings);
+  }
   els.apiBaseUrl.value = state.settings.apiBaseUrl;
   els.modelName.value = state.settings.modelName;
   els.apiKey.value = state.settings.apiKey;
@@ -219,34 +238,60 @@ async function handleSubmit(event) {
     const reply = await getAssistantReply(content, localResult);
     updateMessage(typingId, reply);
   } catch (error) {
-    updateMessage(typingId, `处理失败：${error.message}`);
+    // 模型服务不可用时仍返回本地召回结果，保证平台可用性。
+    const fallback = analyzeQuestion(content);
+    updateMessage(
+      typingId,
+      `${buildLocalReply(fallback)}\n\n（Qwen 服务暂不可用，当前展示本地知识库匹配结果。）`
+    );
   }
 }
 
 async function getAssistantReply(content, localResult) {
   const { apiBaseUrl, modelName, apiKey } = state.settings;
-  if (!apiBaseUrl || !apiKey) {
+  if (!apiBaseUrl) {
     return buildLocalReply(localResult);
   }
 
+  // 正式平台走后端 GraphRAG，避免浏览器直接暴露模型服务地址。
+  if (apiBaseUrl.startsWith("/api/") || apiBaseUrl.endsWith("/api/search")) {
+    const response = await fetch(apiBaseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: content, top_k: 5, use_llm: true }),
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const data = await response.json();
+    return data.answer_text || buildLocalReply(localResult);
+  }
+
+  const candidateList = localResult.matches.slice(0, 8).map((item, index) => ({
+    rank: index + 1,
+    metric: item.name,
+    category: item.category,
+    definition: item.desc,
+    source: item.source,
+    recall_score: item.score,
+    recall_reason: item.reason,
+  }));
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
   const response = await fetch(apiBaseUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers,
     body: JSON.stringify({
-      model: modelName || "gpt-4.1-mini",
-      temperature: 0.25,
+      model: modelName || "Qwen3.6-27B-NVFP4",
+      temperature: 0.1,
       messages: [
         {
           role: "system",
           content:
-            "你是贵州统计指标匹配 Agent。必须优先使用给定指标匹配结果；匹配不足时，提出公开联网检索方向和谨慎的统计分析报告，不编造具体数据。",
+            "你是统计指标匹配 Agent。只能从候选指标中选择，不得创造候选之外的指标。先判断对象、属性、条件和用户意图是否一致；只共享一个字、短词或数量属性但对象不同的候选必须排除。输出简洁的匹配结果、匹配原因和必要的口径提醒，不编造具体数据。",
         },
         {
           role: "user",
-          content: `匹配策略：\n${els.knowledgeBase.value}\n\n用户问题：\n${content}\n\n本地指标匹配结果：\n${JSON.stringify(localResult, null, 2)}`,
+          content: `用户问题：\n${content}\n\n候选指标（只能从这里选择）：\n${JSON.stringify(candidateList, null, 2)}\n\n路由信息：\n${JSON.stringify(localResult.route, null, 2)}\n\n请返回最终推荐指标及每个指标的匹配原因。`,
         },
       ],
     }),
@@ -324,7 +369,7 @@ function rankCategories(question, limit = 3) {
 }
 
 function searchMetrics(question, limit = 8, route = routeQuestion(question)) {
-  const qNorm = normalizeText(question);
+  const qNorm = normalizeSemanticSynonyms(normalizeText(question));
   const qCore = stripStopWords(qNorm);
   const grams = makeNgrams(qCore || qNorm);
   const routeCategories = new Set(route.categories || []);
@@ -332,6 +377,7 @@ function searchMetrics(question, limit = 8, route = routeQuestion(question)) {
   const candidates = state.metrics
     .map((metric) => scoreMetric(metric, question, qNorm, qCore, grams, routeCategories))
     .filter((item) => item.score >= 0.08)
+    .filter((item) => route.queryType !== "local" || candidateHasMeaningfulEvidence(question, item))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
@@ -372,10 +418,10 @@ function scoreMetric(metric, question, qNorm, qCore, grams, routeCategories = ne
     ...metric.aliases,
     ...metric.conditions,
   ].filter(Boolean);
-  const searchText = normalizeText(fields.join(" "));
-  const metricName = normalizeText(metric.name);
+  const searchText = normalizeSemanticSynonyms(normalizeText(fields.join(" ")));
+  const metricName = normalizeSemanticSynonyms(normalizeText(metric.name));
   const category = normalizeText(metric.category);
-  const aliases = metric.aliases.map(normalizeText);
+  const aliases = metric.aliases.map((value) => normalizeSemanticSynonyms(normalizeText(value)));
   const fuzzy = fuzzyScore(qCore || qNorm, searchText);
   const coverage = coverageScore(question, metric.name);
   const semantic = semanticScore(question, metric);
@@ -535,6 +581,27 @@ function broadMetricPenalty(query, metric) {
 
 function normalizeForMatch(value) {
   return String(value || "").replace(/[ \t\n\r（）()，,：:、\-_]/g, "").trim();
+}
+
+function normalizeSemanticSynonyms(value) {
+  let text = String(value || "");
+  for (const [term, canonical] of [...synonymCanonical.entries()].sort((a, b) => b[0].length - a[0].length)) {
+    text = text.replaceAll(term, canonical);
+  }
+  return text;
+}
+
+function candidateHasMeaningfulEvidence(question, item) {
+  const q = normalizeSemanticSynonyms(normalizeForMatch(question));
+  const metric = normalizeSemanticSynonyms(normalizeForMatch(item.name));
+  if (!q || !metric) return false;
+  if (q.includes(metric) || metric.includes(q)) return metric.length >= 2;
+  const aliases = (state.metrics.find((candidate) => candidate.name === item.name)?.aliases || [])
+    .map((alias) => normalizeSemanticSynonyms(normalizeForMatch(alias)));
+  if (aliases.some((alias) => alias.length >= 2 && (q.includes(alias) || alias.includes(q)))) return true;
+  const qBigrams = new Set([...q].slice(0, -1).map((_, i) => q.slice(i, i + 2)));
+  const sharedBigrams = [...metric].slice(0, -1).filter((_, i) => qBigrams.has(metric.slice(i, i + 2))).length;
+  return metric.length >= 3 && sharedBigrams >= 1;
 }
 
 function queryCoreText(query) {
@@ -724,7 +791,7 @@ function renderMessages() {
 function saveSettings(showFeedback = true) {
   state.settings = {
     apiBaseUrl: els.apiBaseUrl.value.trim(),
-    modelName: els.modelName.value.trim() || "gpt-4.1-mini",
+    modelName: els.modelName.value.trim() || "Qwen3.6-27B-NVFP4",
     apiKey: els.apiKey.value.trim(),
     metricEndpoint: els.metricEndpoint.value.trim(),
     metricAccessToken: "",
