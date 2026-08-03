@@ -1404,6 +1404,7 @@ def call_llm(prompt):
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.1,
+        "max_tokens": 2048,
         "response_format": {"type": "json_object"}
     }
     headers = {"Content-Type": "application/json"}
@@ -1726,11 +1727,6 @@ def cross_encoder_rerank(query, candidates, top_k=20):
 
 
 def build_final_answer(G, query, candidates, llm_result=None):
-    # Keep graph expansion for one-character entity queries. LLM selection is
-    # intentionally bypassed here because it tends to collapse the result to
-    # the exact entity and discard related category metrics.
-    if len(normalize_for_match(str(query or "").strip())) == 1:
-        llm_result = None
     if USE_CROSS_ENCODER_RERANK:
         # The generative LLM may explain candidates, but the calibrated
         # second-stage scorer owns the final order when enabled.
@@ -2455,16 +2451,46 @@ def graphrag_search(query, top_k=5, use_llm=USE_LLM_RERANK):
         query_plan = plan_query_with_llm(query) if use_llm else {}
         candidates = local_graphrag_search(query, top_k=30, route_categories=[], query_plan=query_plan)
         candidates = cross_encoder_rerank(query, candidates, top_k=30)
-        # Single-character entity queries use protected graph expansion. The LLM
-        # reranker may keep only the exact entity and accidentally drop its
-        # same-category aggregate metrics.
         is_single_entity = len(normalize_for_match(str(query or "").strip())) == 1
-        llm_result = (
-            None
-            if is_single_entity
-            else (rerank_metrics_with_llm(query, candidates, top_k=top_k) if use_llm else None)
-        )
+        llm_result = rerank_metrics_with_llm(query, candidates, top_k=top_k) if use_llm else None
+        if is_single_entity and use_llm:
+            llm_result = llm_result or {"ranked_metrics": []}
+            ranked = list(llm_result.get("ranked_metrics", []))
+            selected_names = {item.get("metric") for item in ranked}
+            exact_name = normalize_for_match(str(query or "").strip())
+            for candidate in candidates:
+                metric = candidate.get("metric")
+                if metric in selected_names:
+                    continue
+                if normalize_for_match(str(metric or "")) == exact_name:
+                    ranked.insert(0, {
+                        "metric": metric,
+                        "score": 1.0,
+                        "reason": "Qwen 重排保留精确实体命中"
+                    })
+                    selected_names.add(metric)
+                    break
+            for candidate in candidates:
+                relation = str(candidate.get("graph_relation", ""))
+                metric = candidate.get("metric")
+                if metric in selected_names or not relation.startswith("同大类扩展"):
+                    continue
+                ranked.append({
+                    "metric": metric,
+                    "score": candidate.get("score", 0.0),
+                    "reason": candidate.get("match_reason", "知识图谱同大类扩展指标")
+                })
+                selected_names.add(metric)
+                if len(ranked) >= top_k:
+                    break
+            llm_result["ranked_metrics"] = ranked[:top_k]
         answer = build_final_answer(G, query, candidates, llm_result)
+        if is_single_entity and use_llm:
+            for index, item in enumerate(answer.get("matched_metrics", [])):
+                if index == 0:
+                    item["reason"] = "Qwen 参与判断，保留单字实体的精确命中"
+                elif "混合检索结果" in item.get("reason", ""):
+                    item["reason"] = "Qwen 参与判断后保留的 GraphRAG 同大类关联指标"
         answer["retrieval_mode"] = "local"
         answer["route"] = route
         answer["query_plan"] = query_plan

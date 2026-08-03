@@ -111,8 +111,6 @@ def search():
         # Preserve structural expansion for one-character entity queries.
         # The LLM planner/reranker can collapse "马" to the exact metric and
         # hide the related livestock indicators returned by the graph.
-        if len(query) == 1:
-            use_llm = False
         ns = load_graphrag()
         if "use_cross_encoder" in body:
             ns["USE_CROSS_ENCODER_RERANK"] = bool(body.get("use_cross_encoder"))
