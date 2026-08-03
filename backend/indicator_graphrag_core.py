@@ -1444,7 +1444,24 @@ def rerank_metrics_with_llm(query, candidates, top_k=5):
         return {"ranked_metrics": [], "need_clarification": True, "clarification_question": "没有找到候选指标。"}
 
     candidate_text = build_candidate_text(candidates)
-    prompt = f"""
+    if len(normalize_for_match(str(query or "").strip())) == 1:
+        prompt = f"""
+You are ranking indicator candidates for a one-character entity query.
+The exact candidate whose name equals the user query must be kept as relevant.
+Other candidates may be kept only when their graph category or definition shows
+a meaningful aggregate or measurement relationship to that exact entity.
+Do not keep unrelated words that merely contain the same character.
+Return JSON only. Use the exact candidate metric names.
+
+User query: {query}
+Candidates:
+{candidate_text}
+
+JSON format:
+{{"ranked_metrics":[{{"metric":"exact candidate name","relevant":true,"score":0.95,"reason":"short reason"}}],"need_clarification":false,"clarification_question":""}}
+"""
+    else:
+        prompt = f"""
 你是指标匹配助手。根据用户问题，从候选指标中选出最相关的指标。
 规则：只能选择候选中的指标名称，不得创造名称；最多返回 {top_k} 个；score 为 0 到 1；输出合法 JSON。
 请先判断每个候选是否 relevant：如果候选只与问题共享一个字、短词或数量属性，但对象、属性、条件、别名和定义都不一致，必须标记为 false 并删除。
@@ -1727,7 +1744,17 @@ def cross_encoder_rerank(query, candidates, top_k=20):
 
 
 def build_final_answer(G, query, candidates, llm_result=None):
-    if USE_CROSS_ENCODER_RERANK:
+    is_single_entity = len(normalize_for_match(str(query or "").strip())) == 1
+    if is_single_entity:
+        selected = [
+            {
+                "metric": item["metric"],
+                "score": item.get("score", 0.0),
+                "reason": "Qwen 已调用；单字实体采用 GraphRAG 同大类结构保护"
+            }
+            for item in candidates[:5]
+        ]
+    elif USE_CROSS_ENCODER_RERANK:
         # The generative LLM may explain candidates, but the calibrated
         # second-stage scorer owns the final order when enabled.
         llm_by_metric = {
