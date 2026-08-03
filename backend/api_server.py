@@ -7,7 +7,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-CODE_PATH = BASE_DIR / "outputs" / "indicator_graphrag_semantic_optimized.py"
+CODE_PATH = BASE_DIR / "backend" / "indicator_graphrag_core.py"
 
 app = Flask(__name__)
 
@@ -49,7 +49,7 @@ def load_graphrag():
             'CROSS_ENCODER_TOP_N = int(os.getenv("CROSS_ENCODER_TOP_N", "12"))',
             f"CROSS_ENCODER_TOP_N = {int(os.getenv('CROSS_ENCODER_TOP_N', '12'))}",
         )
-        demo_start = source.find("# 覆盖不同大类的示例")
+        demo_start = source.find("# PUBLIC_API_STOP")
         if demo_start != -1:
             source = source[:demo_start]
         namespace = {"__name__": "graphrag_backend_core"}
