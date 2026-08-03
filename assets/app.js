@@ -262,7 +262,7 @@ async function getAssistantReply(content, localResult) {
     });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     const data = await response.json();
-    return data.answer_text || buildLocalReply(localResult);
+    return formatGraphRagReply(data, localResult);
   }
 
   const candidateList = localResult.matches.slice(0, 8).map((item, index) => ({
@@ -300,6 +300,32 @@ async function getAssistantReply(content, localResult) {
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   const data = await response.json();
   return data.choices?.[0]?.message?.content?.trim() || buildLocalReply(localResult);
+}
+
+function formatGraphRagReply(data, fallback) {
+  if (!data || !data.matched_metrics) return data?.answer_text || buildLocalReply(fallback);
+  const modeLabels = {
+    local: "指标级检索",
+    global: "大类级检索",
+    cross_category: "跨大类检索",
+  };
+  const mode = modeLabels[data.retrieval_mode] || data.retrieval_mode || "GraphRAG 检索";
+  const routeCategories = (data.route?.categories || []).slice(0, 3).join("、");
+  const plan = data.query_plan || {};
+  const planParts = [
+    ...(plan.objects || []),
+    ...(plan.properties || []),
+    ...(plan.conditions || []),
+  ].filter(Boolean).slice(0, 5);
+  const paths = (data.matched_metrics || [])
+    .slice(0, 3)
+    .flatMap((item) => item.matched_paths || [])
+    .slice(0, 4);
+  const meta = [`GraphRAG：${mode}`];
+  if (routeCategories) meta.push(`候选大类：${routeCategories}`);
+  if (planParts.length) meta.push(`查询理解：${planParts.join("、")}`);
+  if (paths.length) meta.push(`图谱路径：\n${paths.map((path) => `- ${path}`).join("\n")}`);
+  return `${meta.join("\n")}\n\n${data.answer_text || buildLocalReply(fallback)}`;
 }
 
 function analyzeQuestion(question) {
