@@ -1,30 +1,28 @@
-# Public Deployment Guide
+# 部署说明
 
-This guide describes how to deploy the public-safe GraphRAG reference
-implementation. It does not contain any private endpoint, credential, local
-dataset, or machine-specific path.
+本文档说明如何部署公开代码和私有运行数据。仓库本身不包含任何真实
+指标文件、内网地址或密钥。
 
-## 1. Components
+## 一、部署架构
 
 ```text
-Browser / API client
-        |
-        v
-GraphRAG API service
-        |
-        +--> indicator store mounted at runtime
-        +--> optional embedding service
-        +--> optional LLM gateway
-        +--> optional Cross-Encoder reranker
+浏览器 / API 客户端
+          |
+          v
+GraphRAG API 服务
+          |
+          +--> 运行时挂载的指标文件
+          +--> 可选 Embedding 服务
+          +--> 可选 LLM 网关
+          +--> 可选 Cross-Encoder 服务
 ```
 
-The static frontend can be published through GitHub Pages. The Python API and
-model services should run in a protected backend network. GitHub Pages must
-not contain private indicator data or model credentials.
+前端可以部署到 GitHub Pages。Python API、指标数据和模型服务应部署在
+受控服务器或内网中。GitHub Pages 不能保护私有文件和服务密钥。
 
-## 2. Local or Server Installation
+## 二、环境准备
 
-Use Python 3.11 or later:
+建议使用 Python 3.11 或更高版本：
 
 ```powershell
 py -3.11 -m venv .venv
@@ -32,58 +30,58 @@ py -3.11 -m venv .venv
 py -3.11 -m pip install -r backend\requirements.txt
 ```
 
-Start the API:
+## 三、准备指标数据
+
+指标数据不是代码，应单独存储。推荐流程：
+
+1. 将已授权的 JSON/TXT 指标文件放在受控目录、对象存储或数据库中；
+2. 只授予 API 服务读取权限；
+3. 启动服务时通过环境变量指定文件路径；
+4. 图谱、三元组和 Embedding 缓存写入运行目录；
+5. 不把原始指标、缓存或图谱快照提交到 GitHub。
+
+示例配置：
+
+```powershell
+$env:INDICATOR_PATH = "data\approved-indicators.json"
+$env:INDICATOR_DATA_DIR = "data"
+$env:GRAPHRAG_RUNTIME_DIR = "runtime"
+```
+
+`INDICATOR_PATH` 是指标入口文件；`INDICATOR_DATA_DIR` 用于查找别名和
+语义配置；`GRAPHRAG_RUNTIME_DIR` 用于保存运行时生成的图谱文件。
+
+## 四、启动 API 服务
 
 ```powershell
 $env:PORT = "8090"
 $env:LLM_BASE_URL = "https://your-llm-gateway.example/v1"
 $env:LLM_MODEL = "your-model-name"
 $env:LLM_API_KEY = "runtime-secret"
+
 py -3.11 backend\api_server.py
 ```
 
-The API exposes:
+接口：
 
-- `GET /health`
-- `POST /api/search`
-- `GET /` for the bundled frontend
-
-Do not place the real key in a script, notebook, frontend bundle, README, or
-GitHub Actions log.
-
-## 3. Indicator Data Deployment
-
-Indicator data is an application input, not source code. For private data:
-
-1. Store it in a private object store, database, or mounted volume.
-2. Grant the API service a read-only identity.
-3. Load or build the graph during a controlled deployment step.
-4. Never commit raw JSON, CSV exports, embedding caches, or graph snapshots
-   that contain private indicator content.
-5. Apply access control before returning indicator definitions to a client.
-
-For public demonstrations, use a separately approved synthetic or public data
-subset under `assets/`.
-
-At runtime, point the service to the mounted file without committing it:
-
-```powershell
-$env:INDICATOR_PATH = "data\approved-indicators.json"
-$env:INDICATOR_DATA_DIR = "data"
-$env:GRAPHRAG_RUNTIME_DIR = "runtime"
-py -3.11 backend\api_server.py
+```http
+GET /health
 ```
 
-The `runtime` directory contains generated triples, graph tables and optional
-embedding caches. It is intentionally ignored by Git.
+```http
+POST /api/search
+Content-Type: application/json
 
-## 4. LLM Configuration
+{"query":"自然语言问题","top_k":5,"use_llm":true}
+```
 
-The LLM is used for query planning and optional explanation/reranking. It must
-not invent indicators outside the configured graph. The backend should pass
-only the candidate indicators retrieved from the graph to the model.
+返回内容包括匹配指标、分数、匹配原因、所属大类、指标定义和图谱路径。
+所有指标必须来自运行时加载的指标库。
 
-Required runtime variables:
+## 五、LLM 配置
+
+LLM 只负责查询规划和可选解释，不允许生成指标库之外的名称。建议通过
+后端环境变量配置：
 
 ```text
 LLM_BASE_URL=https://your-llm-gateway.example/v1
@@ -91,12 +89,16 @@ LLM_MODEL=your-model-name
 LLM_API_KEY=<secret>
 ```
 
-When the LLM is unavailable, deterministic exact, alias, keyword, embedding,
-and graph retrieval remains available.
+前端不应直接调用模型服务。正式部署时，浏览器只调用自己的后端代理，
+密钥只保存在后端环境或密钥管理系统中。
 
-## 5. Optional Cross-Encoder Service
+当 LLM 不可用时，系统仍可使用精确、别名、关键词、Embedding 和图谱
+召回完成基础匹配。
 
-The second-stage reranker is intentionally opt-in. Deploy it separately:
+## 六、可选 Reranker 服务
+
+项目包含 `backend/reranker_server.py`，用于部署真正的 Cross-Encoder。
+该服务只重排第一阶段候选，不创建新指标。
 
 ```powershell
 $env:RERANK_MODEL = "your-approved-cross-encoder"
@@ -104,63 +106,35 @@ $env:RERANK_PORT = "8018"
 py -3.11 backend\reranker_server.py
 ```
 
-Configure the GraphRAG API:
-
-```text
-USE_CROSS_ENCODER_RERANK=true
-CROSS_ENCODER_URL=http://your-reranker-service:8018/v1/rerank
-CROSS_ENCODER_TIMEOUT=8
-```
-
-The reranker receives a query and structured indicator cards. It must only
-reorder the first-stage candidates and must not create new indicator names.
-
-## 6. GitHub Pages
-
-The repository includes a Pages workflow under `.github/workflows/pages.yml`.
-
-1. Enable GitHub Pages in repository settings.
-2. Select GitHub Actions as the build and deployment source.
-3. Push the approved public frontend and documentation branch.
-4. Verify that no private data or secrets are present in the artifact.
-
-GitHub Pages is a static host. It cannot securely protect private indicator
-files or server-side API keys. Use a backend proxy for all private services.
-
-## 7. Evaluation Before Production
-
-Run the 100-case evaluator against a protected backend:
+API 服务配置：
 
 ```powershell
-$env:TEST_USE_LLM = "false"
-$env:TEST_USE_CROSS_ENCODER = "false"
-$env:TEST_VERSION = "baseline"
-py -3.11 backend\run_api_100_tests.py
+$env:USE_CROSS_ENCODER_RERANK = "true"
+$env:CROSS_ENCODER_URL = "http://your-reranker-service:8018/v1/rerank"
+$env:CROSS_ENCODER_TIMEOUT = "8"
 ```
 
-Then run the same cases with the reranker enabled:
+Reranker 必须经过离线评估后才能成为默认排序模块。当前默认关闭，避免
+未验证模型降低 Top1 或 Recall@5。
 
-```powershell
-$env:TEST_USE_CROSS_ENCODER = "true"
-$env:TEST_VERSION = "reranker"
-py -3.11 backend\run_api_100_tests.py
-```
+## 七、GitHub Pages 部署
 
-Promote the reranker only when Top1 improves without degrading Recall@5,
-short-query precision, alias precision, or category recall.
+项目包含 `.github/workflows/pages.yml`：
 
-## 8. Secret and Privacy Checklist
+1. 在仓库 Settings 中启用 Pages；
+2. Build and deployment 选择 GitHub Actions；
+3. 推送 `main` 分支；
+4. 等待 Actions 完成；
+5. 检查部署产物中不包含私有指标和密钥。
 
-Before pushing:
+GitHub Pages 只适合静态前端和公开文档。私有指标、API Key、Embedding
+服务和 LLM 服务必须放在后端。
 
-- Search for API key prefixes such as `sk-`.
-- Search for private IP ranges and internal hostnames.
-- Search for `C:\Users`, `/home/`, and machine-specific paths.
-- Confirm `.env`, caches, test outputs, PDFs, screenshots, and private data are
-  ignored.
-- Review `git diff --cached` manually.
-- Rotate any credential that was ever committed.
+## 八、上线前检查
 
-The public repository should contain code and deployment guidance only. Model
-credentials, internal URLs, private indicators, and evaluation exports remain
-outside GitHub.
+- 扫描 `sk-`、Bearer Token 和密码；
+- 扫描内网 IP、内部域名和本机路径；
+- 确认 `.env`、缓存、日志、PDF、截图和测试输出未被跟踪；
+- 确认指标文件只通过运行时挂载提供；
+- 执行 `git diff --cached` 审核暂存内容；
+- 若历史提交曾包含密钥，立即撤销并轮换密钥。

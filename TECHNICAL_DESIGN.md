@@ -1,62 +1,66 @@
-# Indicator GraphRAG Technical Design
+# 指标知识图谱 GraphRAG 技术方案
 
-## 1. Purpose
+## 1. 项目目标
 
-This project matches natural-language questions to indicators in an approved
-indicator catalog. It does not ask an LLM to invent indicator names. Every
-returned result must come from the configured indicator graph or indicator
-store.
+本项目的任务是：用户使用自然语言提问，系统从已授权指标库中找到最
+匹配的几个指标，并返回可解释、可追溯的结果。
 
-The design targets four requirements:
+系统不依赖历史问答数据库，主要依靠指标库自身构建知识图谱、语义结构
+和检索索引。因此重点不是生成答案，而是从真实指标集合中完成准确匹配。
 
-- natural-language and colloquial questions;
-- synonym and alias matching;
-- parent/child indicator relationships;
-- explainable, reproducible Top-K retrieval.
+需要解决的问题包括：
 
-## 2. Architecture
+- 口语问题与正式指标名称不同；
+- 同义词和简称需要互相召回；
+- 父指标、子指标和同类指标容易混淆；
+- 相同的“数量、面积、是否”等词可能造成误匹配；
+- 短词包含关系可能产生明显噪声；
+- 用户既可能问具体指标，也可能问一个大类或多个大类。
+
+## 2. 总体架构
 
 ```text
-Approved indicator files
+指标 JSON/TXT/CSV
         |
         v
-Parse -> normalize -> extract object/property/condition
+解析 -> 清洗 -> 标准化 -> 对象/属性/条件抽取
         |
-        +--> indicator graph
-        +--> category/community summaries
-        +--> keyword index
-        +--> embedding index
+        +--> 指标知识图谱
+        +--> 大类社区摘要
+        +--> 关键词索引
+        +--> Embedding 索引
         |
-User query
+用户问题
         |
-        +--> normalize and route
-        +--> optional LLM query planning
+        +--> 查询规范化
+        +--> 查询路由
+        +--> LLM 查询规划（可选）
         |
-        +--> exact and alias retrieval
-        +--> keyword retrieval
-        +--> embedding retrieval
-        +--> graph expansion
+        +--> 精确召回
+        +--> 别名召回
+        +--> 关键词召回
+        +--> Embedding 召回
+        +--> 图谱扩展
         |
-Candidate fusion and filtering
+候选融合与过滤
         |
-Rule ranking -> optional LLM explanation
+规则排序 -> 可选 LLM 解释 -> 可选 Cross-Encoder 重排
         |
-Top-K indicators with definitions and graph paths
+TopK 指标、定义、原因、类别和图谱路径
 ```
 
-The browser is a client. Private indicator data, model endpoints and API keys
-belong in a protected backend, never in GitHub Pages or frontend bundles.
+## 3. 指标数据结构
 
-## 3. Indicator Modeling
-
-Each source indicator is parsed into a record containing:
+每条原始指标解析为结构化记录：
 
 ```json
 {
-  "metric_name": "example indicator",
-  "category": "example category",
-  "definition": "approved statistical definition",
-  "source": "approved reporting source",
+  "raw_text": "原始指标文本",
+  "metric_name": "指标名称",
+  "category": "所属大类",
+  "definition": "指标口径说明",
+  "source": "填报来源",
+  "prefix": "其中",
   "aliases": [],
   "objects": [],
   "properties": [],
@@ -65,25 +69,34 @@ Each source indicator is parsed into a record containing:
 }
 ```
 
-The original text is retained for traceability. A separate matching form is
-used for whitespace, punctuation and synonym normalization. The raw spelling
-is still preserved so an exact user phrase can outrank its aliases.
+解析规则：
 
-## 4. Knowledge Graph
+1. 保留原始文本；
+2. 处理“其中：”前缀；
+3. 按第一个中文或英文冒号拆分名称和定义；
+4. 提取“由某部门填报”的来源信息；
+5. 去掉展示名称中的说明括号；
+6. 提取对象、属性、条件和统计值类型。
 
-### Nodes
+同时保留原始名称、展示名称和匹配名称。匹配名称可以做标点、空格和
+同义词归一化，但最终排序仍保留用户原始词优先。
 
-- `Category`: indicator category or community;
-- `Metric`: approved indicator entity;
-- `Alias`: synonym, abbreviation or colloquial phrase;
-- `Definition`: statistical definition;
-- `Source`: reporting source;
-- `Object`: measured object;
-- `Property`: measured property;
-- `Condition`: scope or constraint;
-- `Intent`: count, boolean, area, rate, source, list, and similar intents.
+## 4. 知识图谱构建
 
-### Edges
+### 4.1 节点
+
+| 节点 | 含义 |
+|---|---|
+| Category | 指标大类或 GraphRAG 社区 |
+| Metric | 正式指标实体 |
+| Alias | 同义词、简称和口语表达 |
+| Definition | 指标定义和统计口径 |
+| Source | 指标填报来源 |
+| Object | 统计对象，如人口、耕地、生活垃圾 |
+| Property | 统计属性，如数量、面积、是否分类 |
+| Condition | 户籍、常住、当年、公共等限定条件 |
+
+### 4.2 关系
 
 ```text
 Category -HAS_METRIC-> Metric
@@ -99,40 +112,81 @@ Metric -SAME_OBJECT-> Metric
 Metric -SAME_PROPERTY-> Metric
 ```
 
-The graph is used for controlled expansion and explanation. It is not used to
-connect every indicator to every other indicator. Expansion is limited to
-parents, children, same-object metrics, same-property metrics and category
-neighbors.
+图谱不是把所有指标全部互连，而是使用父子、别名、同对象、同属性和大类
+关系做受控扩展。这样既能增加召回，又能避免图谱扩展引入大量弱相关指标。
 
-## 5. Query Processing
+### 4.3 父子指标
 
-### 5.1 Normalization
+父子关系来源包括：
 
-The system removes conversational filler while retaining the semantic core.
-It extracts likely objects, properties, conditions and query intent.
+- 指标名称结构，例如“马铃薯-鲜薯”；
+- “其中：”结构，例如“其中：未成年人口”；
+- 同一对象下的细分指标；
+- 指标定义和类别信息。
 
-Example:
+父子关系只作为召回证据，不能覆盖完整名称的精确命中。
+
+## 5. GraphRAG 与传统 RAG
+
+传统 RAG 通常是：
 
 ```text
-Question: How many elderly people in the village have no one looking after them?
-Plan: object=elderly people, condition=no caregiver, intent=count
-Candidate phrase: left-behind elderly people
+文档切块 -> 向量化 -> 相似度检索 -> 生成回答
 ```
 
-### 5.2 Query Routing
+本项目是：
 
-The router selects one of three modes:
+```text
+指标解析 -> 实体关系构建 -> 图谱和社区摘要
+        -> 精确/关键词/向量/图谱混合召回
+        -> 结构化排序
+        -> 返回真实指标和关系路径
+```
 
-- `local`: find specific indicators;
-- `global`: find indicators under one category;
-- `cross_category`: compare or retrieve across several categories.
+传统 RAG 适合从长文档中找相关段落。本项目要在多个相似指标中选择正确
+的结构化实体，因此必须同时使用指标名称、定义、对象、属性、条件和图谱
+关系，不能只依赖向量距离。
 
-Local queries optimize indicator Top1. Global queries optimize category coverage
-and return a broader set of indicators.
+每个指标大类可以视为一个社区，保存大类名称、指标数量、代表指标和摘要。
+用户问“农田水利有哪些指标”时，系统走大类检索；用户问“村里没人照顾的
+老人有多少”时，系统走指标级检索。
 
-### 5.3 LLM Query Planning
+## 6. 查询处理链路
 
-An OpenAI-compatible LLM can produce a structured query plan:
+### 6.1 查询规范化
+
+系统去除“帮我找一下”“有多少”等功能性表达，同时保留对象、属性、条件
+和时间范围。
+
+例如：
+
+```text
+村里没人照顾的老人有多少
+```
+
+可提取为：
+
+```json
+{
+  "objects": ["老人"],
+  "properties": ["数量"],
+  "conditions": ["无人照顾"],
+  "intent": "count",
+  "candidate_phrases": ["留守老人"]
+}
+```
+
+### 6.2 查询路由
+
+| 类型 | 示例 | 优化目标 |
+|---|---|---|
+| local | 村里没人照顾的老人有多少 | 指标 Top1 |
+| global | 农田水利有哪些指标 | 大类覆盖 |
+| cross_category | 产业发展和经济发展有哪些指标 | 多大类召回 |
+
+### 6.3 LLM 查询规划
+
+可选 LLM 输出结构化线索：
 
 ```json
 {
@@ -146,152 +200,133 @@ An OpenAI-compatible LLM can produce a structured query plan:
 }
 ```
 
-The plan is retrieval evidence, not an answer. The model is not allowed to
-create an indicator outside the candidate set or the graph.
+LLM 只负责理解问题和生成检索线索，不负责创造指标。最终结果必须在
+候选集合和知识图谱中存在。
 
-## 6. Hybrid Retrieval
+## 7. 混合召回和排序
 
-The first stage combines:
+第一阶段同时执行：
 
-1. exact metric-name retrieval;
-2. alias and synonym retrieval;
-3. fuzzy and token coverage retrieval;
-4. embedding retrieval;
-5. graph relationship retrieval;
-6. category routing and query-plan retrieval.
+1. 指标名称精确匹配；
+2. 别名和同义词匹配；
+3. 字面相似和关键词覆盖；
+4. Embedding 向量召回；
+5. 父子、同对象、同属性图谱扩展；
+6. 大类路由和查询规划召回。
 
-The first stage should favor recall. Ranking is performed after the candidate
-set is built.
+第一阶段优先保证 Recall@K。候选集合形成后，再进行排序。
 
-The base score is conceptually:
-
-```text
-BaseScore = lexical + coverage + embedding + graph + semantic
-          + intent + query_plan + route - broad_metric_penalty
-```
-
-All score components are retained in the match reason for debugging and
-offline evaluation.
-
-## 7. Precision Rules
-
-### Literal-first alias policy
-
-Synonyms should recall one another without stealing the user's exact phrase:
+基础评分逻辑为：
 
 ```text
-query: exact metric name -> exact metric first
-query: alias -> alias metric first
-query: semantic paraphrase -> semantic ranking
+BaseScore =
+    字面匹配分
+  + 关键词覆盖分
+  + 向量语义分
+  + 图谱关系分
+  + 对象/属性/条件语义分
+  + 查询意图分
+  + 查询规划分
+  + 路由分
+  - 宽泛指标惩罚
 ```
 
-For example, equivalent terms can both be returned, but the exact input term
-is ranked first.
+每项分数会进入匹配原因，方便排查为什么某个指标排名靠前。
 
-### Short-query guard
+## 8. 精度保护规则
 
-Single-character queries are restricted to exact metric matches. This prevents
-substring expansion from turning a query for a short indicator into unrelated
-longer indicators.
+### 8.1 原词优先
 
-### Definition and object guard
-
-Shared generic words such as “number”, “area” or “processing” are not enough
-to establish relevance. Object, property, condition, alias and definition
-evidence must agree before a candidate receives a strong score.
-
-## 8. Optional Second-Stage Reranker
-
-The repository includes an adapter and a standalone service for a real
-Cross-Encoder. It receives the query and structured indicator cards, then
-returns scores for the first-stage candidates.
+同义词可以互相召回，但用户输入的完整指标名必须优先：
 
 ```text
-Top30 candidates
-      |
-      v
-Cross-Encoder(query, metric card)
-      |
-      v
-Rule validation and exact-match protection
-      |
-      v
-Top5
+搜索“马铃薯” -> 马铃薯第一，土豆随后
+搜索“土豆”   -> 土豆第一，马铃薯随后
 ```
 
-The reranker is opt-in because a generic embedding model is not equivalent to
-a Cross-Encoder. It must pass the same test set before becoming the default
-ranking owner.
+### 8.2 单字保护
 
-## 9. Deployment
-
-### API service
-
-```powershell
-py -3.11 -m venv .venv
-.venv\Scripts\Activate.ps1
-py -3.11 -m pip install -r backend\requirements.txt
-
-$env:LLM_BASE_URL = "https://your-llm-gateway.example/v1"
-$env:LLM_MODEL = "your-model-name"
-$env:LLM_API_KEY = "runtime-secret"
-$env:PORT = "8090"
-py -3.11 backend\api_server.py
-```
-
-### Reranker service
-
-```powershell
-$env:RERANK_MODEL = "your-approved-cross-encoder"
-$env:RERANK_PORT = "8018"
-py -3.11 backend\reranker_server.py
-```
-
-Then configure the API process with the protected reranker URL and enable the
-feature only after evaluation.
-
-### Static frontend
-
-The static frontend can be deployed with the included GitHub Pages workflow.
-It must contain only approved public assets. Private indicators and all model
-credentials must remain behind the API service.
-
-## 10. Evaluation
-
-Use identical test cases for baseline and experimental variants. Record:
-
-- Top1 accuracy for local indicator queries;
-- Recall@5;
-- MRR@5;
-- category recall;
-- alias precision;
-- short-query precision;
-- obvious-noise rate;
-- latency and model-call count.
-
-The current reference baseline is approximately:
+单字查询只允许精确命中，不进行模糊邻居扩展：
 
 ```text
-Top1: 89.58%
-Recall@5: 100%
-MRR@5: 94.44%
-Category recall: 96.15%
+搜索“马” -> 只返回“马”
 ```
 
-The reranker should only be enabled when it improves Top1 without degrading
-Recall@5 or boundary-case precision.
+这可以防止“马铃薯”因为包含“马”而污染结果。
 
-## 11. Security Boundary
+### 8.3 对象和定义保护
 
-Before every public push:
+“数量、面积、是否、处理”等通用词不能单独证明相关。对象、属性、条件、
+别名和定义需要形成一致证据，才能获得较高排序分。
 
-- scan for API key prefixes and bearer tokens;
-- scan for private IP addresses and internal hostnames;
-- scan for user home directories and machine-specific paths;
-- exclude `.env`, caches, logs, screenshots, PDFs, test exports and private
-  indicator files;
-- review the staged diff, not just the working tree.
+## 9. Qwen 和 Reranker 的职责
 
-The public repository is a deployment reference. Runtime secrets and private
-data are supplied through environment variables, secret managers, or protected
-storage.
+### 当前默认链路
+
+```text
+Qwen 查询规划（可选）
+        |
+混合召回
+        |
+规则排序和精确保护
+        |
+Qwen 解释匹配原因（可选）
+```
+
+### 可选实验链路
+
+```text
+混合召回 Top30
+        |
+Cross-Encoder 读取 query + 指标卡片
+        |
+规则校验和原词保护
+        |
+TopK
+```
+
+指标卡片包括指标名称、类别、对象、属性、条件、别名和定义。Reranker 只
+能重排候选，不能生成指标。
+
+当前 Cross-Encoder 默认关闭，因为普通 Bi-Encoder 实验结果低于基线，需
+部署真实 Cross-Encoder 后重新进行同口径测试。
+
+## 10. 评估方法
+
+使用同一批测试问题比较不同版本：
+
+```text
+Top1 = Top1 命中数 / 局部指标问题数
+Recall@5 = Top5 命中数 / 局部指标问题数
+MRR@5 = 命中样例的 1/排名 的平均值
+类别召回率 = 正确类别命中数 / 类别问题数
+```
+
+当前默认主链路基线：
+
+```text
+Top1：89.58%
+Recall@5：100%
+MRR@5：94.44%
+类别召回率：96.15%
+```
+
+上线 Reranker 的条件是 Top1 提升，同时 Recall@5、别名精度、短词精度和
+类别召回不下降。
+
+## 11. 代码结构
+
+| 文件 | 作用 |
+|---|---|
+| `backend/indicator_graphrag_core.py` | 指标解析、图谱、召回和排序核心 |
+| `backend/api_server.py` | Flask API 和前端服务 |
+| `backend/reranker_server.py` | 独立 Cross-Encoder 服务 |
+| `backend/run_api_100_tests.py` | 100 条 API 评估脚本 |
+| `backend/requirements.txt` | Python 依赖 |
+| `PUBLIC_DEPLOYMENT.md` | 部署和安全说明 |
+
+## 12. 当前版本边界
+
+仓库代码不包含私有指标文件、Embedding 缓存、图谱快照和模型密钥。
+启动服务前必须通过 `INDICATOR_PATH` 挂载已授权指标文件。运行时生成的
+三元组、语义表和缓存存放在 `GRAPHRAG_RUNTIME_DIR`，不进入 Git。
