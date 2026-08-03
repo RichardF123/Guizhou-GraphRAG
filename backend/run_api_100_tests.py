@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -13,6 +14,12 @@ API_URL = "http://127.0.0.1:8090/api/search"
 SOURCE_CASES = OUT / "graphrag_test_cases_100_generalized.csv"
 DETAIL_PATH = OUT / "api_qwen_100_test_details.csv"
 SUMMARY_PATH = OUT / "api_qwen_100_test_summary.json"
+USE_LLM = os.getenv("TEST_USE_LLM", "true").lower() == "true"
+USE_CROSS_ENCODER = os.getenv("TEST_USE_CROSS_ENCODER", "true").lower() == "true"
+VERSION = os.getenv("TEST_VERSION", "api_qwen_100")
+MAX_WORKERS = int(os.getenv("TEST_MAX_WORKERS", "1"))
+DETAIL_PATH = OUT / f"{VERSION}_details.csv"
+SUMMARY_PATH = OUT / f"{VERSION}_summary.json"
 
 SPECIAL_CASES = [
     {"id": "S01", "query": "马铃薯", "query_type": "local", "expected_metrics": "马铃薯;土豆", "expected_categories": "粮食作物"},
@@ -54,7 +61,12 @@ def request_case(row):
     try:
         response = requests.post(
             API_URL,
-            json={"query": str(row["query"]), "top_k": 5, "use_llm": True},
+            json={
+                "query": str(row["query"]),
+                "top_k": 5,
+                "use_llm": USE_LLM,
+                "use_cross_encoder": USE_CROSS_ENCODER,
+            },
             timeout=180,
         )
         response.raise_for_status()
@@ -100,7 +112,7 @@ def main():
     base = pd.read_csv(SOURCE_CASES, encoding="utf-8-sig").head(95).to_dict("records")
     cases = base + SPECIAL_CASES
     # 特殊样例放在末尾，方便在明细文件中快速定位。
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = [pool.submit(request_case, row) for row in cases]
         details = [future.result() for future in as_completed(futures)]
     df = pd.DataFrame(details).sort_values("id", key=lambda col: col.astype(str))
@@ -108,13 +120,13 @@ def main():
     non_local = df[df.expected_type != "local"]
     ranks = pd.to_numeric(local.metric_rank, errors="coerce")
     summary = {
-        "version": "api_qwen_graphrag_100",
+        "version": VERSION,
         "api_url": API_URL,
         "total_cases": int(len(df)),
         "local_cases": int(len(local)),
         "category_cases": int(len(non_local)),
         "top_k": 5,
-        "use_llm": True,
+        "use_llm": USE_LLM,
         "local_top1_accuracy": float(local.metric_top1_hit.mean()),
         "local_recall_at_5": float(local.metric_top5_hit.mean()),
         "local_mrr_at_5": float((1 / ranks).fillna(0).mean()),

@@ -38,6 +38,17 @@ def load_graphrag():
             "USE_REMOTE_EMBEDDING = True",
             f"USE_REMOTE_EMBEDDING = {use_embedding}",
         )
+        # Experimental opt-in. The cached bi-encoder fallback is useful for
+        # comparison but is not safe as the production ranking owner.
+        use_cross_encoder = os.getenv("USE_CROSS_ENCODER_RERANK", "false").lower() == "true"
+        source = source.replace(
+            'USE_CROSS_ENCODER_RERANK = os.getenv("USE_CROSS_ENCODER_RERANK", "false").lower() == "true"',
+            f"USE_CROSS_ENCODER_RERANK = {use_cross_encoder}",
+        )
+        source = source.replace(
+            'CROSS_ENCODER_TOP_N = int(os.getenv("CROSS_ENCODER_TOP_N", "12"))',
+            f"CROSS_ENCODER_TOP_N = {int(os.getenv('CROSS_ENCODER_TOP_N', '12'))}",
+        )
         demo_start = source.find("# 覆盖不同大类的示例")
         if demo_start != -1:
             source = source[:demo_start]
@@ -70,8 +81,10 @@ def health():
     return jsonify({
         "status": "ok",
         "service": "guizhou-graphrag",
-        "llm_base_url": os.getenv("LLM_BASE_URL", "http://172.20.0.133:8000/v1"),
-        "llm_model": os.getenv("LLM_MODEL", "Qwen3.6-27B-NVFP4"),
+        "llm_base_url": os.getenv("LLM_BASE_URL", "http://localhost:8000/v1"),
+        "llm_model": os.getenv("LLM_MODEL", "your-model-name"),
+        "cross_encoder_enabled": os.getenv("USE_CROSS_ENCODER_RERANK", "false").lower() == "true",
+        "cross_encoder_url": os.getenv("CROSS_ENCODER_URL", ""),
         "graph_loaded": _graph_ns is not None,
     })
 
@@ -96,6 +109,8 @@ def search():
         top_k = max(1, min(int(body.get("top_k", 5)), 10))
         use_llm = bool(body.get("use_llm", True))
         ns = load_graphrag()
+        if "use_cross_encoder" in body:
+            ns["USE_CROSS_ENCODER_RERANK"] = bool(body.get("use_cross_encoder"))
         answer = ns["graphrag_search"](query, top_k=top_k, use_llm=use_llm)
         answer["answer_text"] = build_answer_text(answer)
         answer["service"] = "python-graphrag-qwen"

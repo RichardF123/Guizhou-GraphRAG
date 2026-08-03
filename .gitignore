@@ -1,1 +1,10 @@
 outputs/
+output/
+tmp/
+work/
+backend/__pycache__/
+.env
+.env.*
+*.key
+*.pem
+*.log

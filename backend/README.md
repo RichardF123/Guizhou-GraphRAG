@@ -1,46 +1,60 @@
-# GraphRAG API 服务
+# GraphRAG API Service
 
-## 启动
+## Install and Run
 
 ```powershell
-cd C:\Users\ASUS\Documents\GraphRAG
 py -3.11 -m pip install -r backend\requirements.txt
+
+$env:LLM_BASE_URL = "https://your-llm-gateway.example/v1"
+$env:LLM_MODEL = "your-model-name"
+$env:LLM_API_KEY = "set-at-runtime-only"
+$env:PORT = "8090"
+
 py -3.11 backend\api_server.py
 ```
 
-默认监听 `http://127.0.0.1:8090`，同一个地址同时提供网页和 API。
+The service listens on `http://127.0.0.1:8090` by default.
 
-## 接口
-
-### 健康检查
+## API
 
 ```http
 GET /health
 ```
 
-### 指标匹配
-
 ```http
 POST /api/search
 Content-Type: application/json
 
-{"query":"村里没人照顾的老人有多少","top_k":5,"use_llm":true}
+{"query":"natural language question","top_k":5,"use_llm":true}
 ```
 
-打开 `http://127.0.0.1:8090/` 即可使用完整网页。后端负责本地图谱召回、相关性过滤、GraphRAG 路由、Qwen 检索规划和 Qwen 最终重排。浏览器不直接访问 Qwen 内网地址。
+The response contains matched indicator names, scores, explanations,
+categories, definitions, and graph paths. All returned indicators must come
+from the configured indicator store.
 
-环境变量：
+## Optional Reranker
+
+The repository includes `backend/reranker_server.py` for a separately hosted
+Cross-Encoder. Keep it disabled until a complete model has passed the same
+offline evaluation as the baseline.
 
 ```powershell
-$env:LLM_BASE_URL = "http://172.20.0.133:8000/v1"
-$env:LLM_MODEL = "Qwen3.6-27B-NVFP4"
-$env:PORT = "8090"
+$env:RERANK_MODEL = "your-approved-reranker"
+$env:RERANK_PORT = "8018"
+py -3.11 backend\reranker_server.py
 ```
 
-## 运行 100 条接口测试
+Then configure the API process with:
 
 ```powershell
-py -3.11 backend\run_api_100_tests.py
+$env:USE_CROSS_ENCODER_RERANK = "true"
+$env:CROSS_ENCODER_URL = "http://your-reranker-service/v1/rerank"
 ```
 
-测试会真实调用 `/api/search` 和 Qwen，结果写入 `outputs/api_qwen_100_test_summary.json` 与 `outputs/api_qwen_100_test_details.csv`。
+## Security Rules
+
+- Store API keys in a secret manager or process environment variables.
+- Put private indicator files behind an authenticated backend.
+- Do not expose internal model endpoints in frontend code or documentation.
+- Do not commit `.env` files, private datasets, generated test outputs, or
+  machine-specific paths.

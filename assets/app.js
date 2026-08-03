@@ -196,7 +196,7 @@ function metricsByCategory() {
 
 function hydrateSettings() {
   // 将旧版本保存的模型直连地址迁移到正式 GraphRAG 后端。
-  if (state.settings.apiBaseUrl.includes("172.20.0.133") || state.settings.apiBaseUrl.includes("chat/completions")) {
+  if (state.settings.apiBaseUrl.includes("chat/completions")) {
     state.settings.apiBaseUrl = "/api/search";
     saveJson(settingsKey, state.settings);
   }

@@ -1,132 +1,44 @@
-# 贵州统计指标智能匹配
+# Indicator GraphRAG
 
-这个项目面向贵州统计局提供的统计指标集，目标是让用户不用先了解指标目录和字段名称，也能通过自然语言提问找到更合适的指标。
+This repository contains a public-safe reference implementation for matching
+natural-language questions to structured indicators with a graph-enhanced
+retrieval pipeline.
 
-简单说，用户可以直接问：
+The repository intentionally does not contain private model endpoints, API
+keys, local datasets, private test outputs, or machine-specific paths.
 
-```text
-我想了解贵州近几年产业结构变化，可以看哪些指标？
-```
-
-系统会根据问题意图，从已授权的指标集中匹配相关指标，并给出推荐理由、可能的查询方向和需要进一步确认的信息。
-
-## 项目定位
-
-传统指标查询通常要求用户知道指标名称、分类口径或统计主题。实际使用时，很多问题是模糊的，例如“经济活力”“人口变化”“旅游发展”“区域比较”。本项目希望在这些自然语言问题和正式统计指标之间建立一层匹配能力。
-
-当前前端主要承担三件事：
-
-- 接收用户的自然语言问题。
-- 默认加载内置贵州统计指标集。
-- 在现有指标覆盖不足时，给出联网补充检索方向和报告草稿。
-
-## 当前功能
-
-- 自然语言对话输入。
-- 内置 2098 条贵州统计指标，覆盖 26 个分类。
-- 使用“本地知识库召回 + Qwen 重排”的 GraphRAG 增强方案做指标匹配。
-- 根据指标名称、分类、别名、口径说明、来源、问题路由和覆盖度做排序。
-- 对匹配不足的问题生成联网检索关键词。
-- 输出简短统计分析报告草稿。
-- 可选配置后端指标接口和访问令牌，用于替换内置指标集。
-- 默认支持内网 Qwen3.6-27B-NVFP4 OpenAI 兼容接口；服务不可用时自动降级到本地匹配。
-- 支持清空对话和导出对话记录。
-
-## 指标集权限
-
-当前版本已经把一份指标集放在 `assets/indicators.js`，用于快速演示和前端直接匹配。需要注意的是，GitHub Pages 本质上是公开静态托管，只要文件被发布，就不能真正做到按用户授权访问。
-
-如果后续指标集不能公开，应切换为下面的方式：
-
-- 前端只保存页面代码和非敏感示例数据。
-- 指标集放在受控后端、数据库或私有存储中。
-- 用户在页面输入指标集接口和访问令牌。
-- 后端校验令牌后，只返回该用户有权限访问的指标。
-
-指标接口建议使用：
-
-```http
-Authorization: Bearer <token>
-```
-
-返回格式可以是：
-
-```json
-{
-  "metrics": [
-    {
-      "name": "地区生产总值",
-      "desc": "反映一定时期内地区经济活动最终成果",
-      "score": 0.92
-    }
-  ]
-}
-```
-
-也可以直接返回数组：
-
-```json
-[
-  {
-    "name": "常住人口",
-    "description": "一定时点在本地区实际居住的人口数量",
-    "weight": 0.86
-  }
-]
-```
-
-## AI 接口
-
-页面默认请求后端 `/api/search`。后端使用 `Qwen3.6-27B-NVFP4`，模型地址为 `http://172.20.0.133:8000/v1`。后端会先用知识图谱召回候选，再让模型在候选中重排，不允许模型创造候选之外的指标。服务不可用时自动返回本地结果。
-
-由于 GitHub Pages 是静态站点，内网地址只有在用户浏览器能够访问该内网服务、且模型服务允许跨域时才可直接调用。正式对外部署时，应将该调用放到受控后端代理中，API Key 只保存在后端环境变量中。
-
-推荐做法是让前端请求自己的后端代理：
-
-```text
-https://your-domain.example/api/chat
-```
-
-后端代理负责读取服务器环境变量中的密钥，并把用户问题、方案说明和已授权指标集一起发送给模型。
-
-本机测试时，可以临时在页面里填写 API Key。这个值只保存在当前浏览器的 `localStorage` 中，不会进入仓库。
-
-## 本地预览
-
-可以直接打开 `index.html`，也可以在项目目录启动一个本地服务：
+## Quick Start
 
 ```powershell
-python -m http.server 8080
+py -3.11 -m pip install -r backend\requirements.txt
+py -3.11 backend\api_server.py
 ```
 
-然后访问：
+Open `http://127.0.0.1:8090/` and use `POST /api/search` for API access.
 
-```text
-http://localhost:8080
+For architecture, data modeling, retrieval, deployment, and evaluation, see
+[`PUBLIC_DEPLOYMENT.md`](PUBLIC_DEPLOYMENT.md) and the technical design in the
+private working copy or your approved documentation repository.
+
+## Configuration
+
+Configure model access through environment variables. Never commit secrets.
+
+```powershell
+$env:LLM_BASE_URL = "https://your-llm-gateway.example/v1"
+$env:LLM_MODEL = "your-model-name"
+$env:LLM_API_KEY = "set-this-only-in-the-runtime-environment"
+$env:PORT = "8090"
+py -3.11 backend\api_server.py
 ```
 
-## 部署
+The API falls back to deterministic local retrieval when the optional LLM is
+unavailable. The Cross-Encoder reranker is experimental and disabled by
+default until a complete model service has passed the offline evaluation.
 
-项目已经包含 GitHub Pages 的 Actions 工作流：
+## Public Data Boundary
 
-```text
-.github/workflows/pages.yml
-```
-
-部署步骤：
-
-1. 推送到 GitHub 仓库。
-2. 打开仓库 `Settings`。
-3. 进入 `Pages`。
-4. `Build and deployment` 选择 `GitHub Actions`。
-5. 推送 `main` 分支后等待 Actions 完成。
-
-## 后续计划
-
-- 接入真实的贵州统计指标后端。
-- 增加指标分类、口径说明和来源引用。
-- 对匹配结果增加置信度和解释。
-- 支持按地区、年份、主题继续追问。
-- 将对话结果整理成可导出的指标清单。
-
-Agent 的完整设计见 [AGENT_DESIGN.md](AGENT_DESIGN.md)。
+Only data approved for public distribution should be placed under `assets/`.
+Private indicator files should be mounted at runtime or loaded through an
+authenticated backend. Do not add internal network addresses, credentials,
+private CSV/JSON exports, generated reports, caches, or local screenshots.
