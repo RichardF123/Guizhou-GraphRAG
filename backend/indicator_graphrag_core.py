@@ -1726,6 +1726,11 @@ def cross_encoder_rerank(query, candidates, top_k=20):
 
 
 def build_final_answer(G, query, candidates, llm_result=None):
+    # Keep graph expansion for one-character entity queries. LLM selection is
+    # intentionally bypassed here because it tends to collapse the result to
+    # the exact entity and discard related category metrics.
+    if len(normalize_for_match(str(query or "").strip())) == 1:
+        llm_result = None
     if USE_CROSS_ENCODER_RERANK:
         # The generative LLM may explain candidates, but the calibrated
         # second-stage scorer owns the final order when enabled.
@@ -2190,7 +2195,8 @@ def route_graphrag_query(query):
 
 def local_graphrag_search(query, top_k=20, route_categories=None, query_plan=None):
     """局部 GraphRAG：候选指标召回后扩展父子指标和同大类邻居。"""
-    # 单字查询只做精确指标检索，不做模糊召回和图邻居扩展，避免“马”扩展到“马铃薯”。
+    # 单字查询必须先锁定精确实体，再沿实体所属大类扩展聚合指标。
+    # 不能把单字直接当作普通子串检索，否则“马”会误命中“马铃薯”等无关指标。
     short_query = normalize_for_match(query_core_text(query))
     if len(short_query) == 1:
         exact_short = []
@@ -2213,7 +2219,50 @@ def local_graphrag_search(query, top_k=20, route_categories=None, query_plan=Non
                 "score": 1.0,
                 "match_reason": "单字指标精确命中，未扩展相邻指标"
             })
-        return exact_short[:top_k]
+        if not exact_short:
+            return []
+
+        # 以精确实体所属大类为边界，补充该领域常用的汇总、存量、流量和组织类指标。
+        # 这些词是结构关系过滤器，不是对用户场景的硬编码；适用于畜牧、种植、渔业等大类。
+        aggregate_terms = (
+            "总", "数量", "人数", "面积", "产量", "产值", "存栏", "出栏", "产出",
+            "养殖", "种植", "经营", "合作社", "牲畜", "畜禽", "产品", "其他"
+        )
+        expanded = list(exact_short)
+        expanded_metrics = {item["metric"] for item in expanded}
+        for anchor in exact_short:
+            anchor_detail = anchor["detail"]
+            for category in anchor_detail.get("categories", []):
+                for metric in GRAPHRAG_STORE["category_metrics"].get(category, []):
+                    if metric in expanded_metrics or metric not in get_all_metrics(G):
+                        continue
+                    detail = get_metric_detail(G, metric)
+                    metric_text = " ".join([
+                        str(metric),
+                        " ".join(detail.get("aliases", [])),
+                        " ".join(detail.get("properties", [])),
+                    ])
+                    # 单字只允许通过图谱关系进入扩展；二次过滤要求指标具有领域聚合含义。
+                    if not any(term in metric_text for term in aggregate_terms):
+                        continue
+                    expanded.append({
+                        "metric": metric,
+                        "fuzzy_score": 0.0,
+                        "vector_score": 0.0,
+                        "graph_score": 0.55,
+                        "semantic_score": 0.45,
+                        "coverage_score": 0.0,
+                        "intent_score": query_intent_score(query, detail),
+                        "route_score": 0.0,
+                        "penalty_score": broad_metric_penalty(query, metric, detail),
+                        "graph_relation": f"同大类扩展：{category}",
+                        "detail": detail,
+                        "score": 0.30,
+                        "match_reason": f"精确实体“{anchor['metric']}”所属大类“{category}”的结构化关联指标"
+                    })
+                    expanded_metrics.add(metric)
+
+        return expanded[:top_k]
 
     exact_results = exact_core_search_metrics(G, query, top_k=50)
     hybrid_results = hybrid_search_metrics(G, query, top_k=30, fuzzy_top_k=40, vector_top_k=40)
@@ -2406,7 +2455,15 @@ def graphrag_search(query, top_k=5, use_llm=USE_LLM_RERANK):
         query_plan = plan_query_with_llm(query) if use_llm else {}
         candidates = local_graphrag_search(query, top_k=30, route_categories=[], query_plan=query_plan)
         candidates = cross_encoder_rerank(query, candidates, top_k=30)
-        llm_result = rerank_metrics_with_llm(query, candidates, top_k=top_k) if use_llm else None
+        # Single-character entity queries use protected graph expansion. The LLM
+        # reranker may keep only the exact entity and accidentally drop its
+        # same-category aggregate metrics.
+        is_single_entity = len(normalize_for_match(str(query or "").strip())) == 1
+        llm_result = (
+            None
+            if is_single_entity
+            else (rerank_metrics_with_llm(query, candidates, top_k=top_k) if use_llm else None)
+        )
         answer = build_final_answer(G, query, candidates, llm_result)
         answer["retrieval_mode"] = "local"
         answer["route"] = route
