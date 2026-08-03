@@ -8,6 +8,9 @@ py -3.11 -m pip install -r backend\requirements.txt
 $env:LLM_BASE_URL = "https://your-llm-gateway.example/v1"
 $env:LLM_MODEL = "your-model-name"
 $env:LLM_API_KEY = "set-at-runtime-only"
+$env:INDICATOR_PATH = "data\approved-indicators.json"
+$env:INDICATOR_DATA_DIR = "data"
+$env:GRAPHRAG_RUNTIME_DIR = "runtime"
 $env:PORT = "8090"
 
 py -3.11 backend\api_server.py

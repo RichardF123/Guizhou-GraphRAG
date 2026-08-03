@@ -65,6 +65,18 @@ Indicator data is an application input, not source code. For private data:
 For public demonstrations, use a separately approved synthetic or public data
 subset under `assets/`.
 
+At runtime, point the service to the mounted file without committing it:
+
+```powershell
+$env:INDICATOR_PATH = "data\approved-indicators.json"
+$env:INDICATOR_DATA_DIR = "data"
+$env:GRAPHRAG_RUNTIME_DIR = "runtime"
+py -3.11 backend\api_server.py
+```
+
+The `runtime` directory contains generated triples, graph tables and optional
+embedding caches. It is intentionally ignored by Git.
+
 ## 4. LLM Configuration
 
 The LLM is used for query planning and optional explanation/reranking. It must
