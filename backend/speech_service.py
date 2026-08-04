@@ -78,14 +78,25 @@ def transcribe_audio(audio_path: str) -> dict:
     remote_result = _transcribe_remote(audio_path)
     if remote_result:
         return remote_result
-    model = _get_funasr_model()
-    result = model.generate(
-        input=audio_path,
-        language="zh",
-        use_itn=True,
-        hotword=os.getenv("ASR_HOTWORDS", ""),
-    )
-    text = _extract_text(result)
+    try:
+        model = _get_funasr_model()
+        result = model.generate(
+            input=audio_path,
+            language="zh",
+            use_itn=True,
+            hotword=os.getenv("ASR_HOTWORDS", ""),
+        )
+        text = _extract_text(result)
+        if text:
+            return {"text": text, "provider": "funasr", "raw": result}
+    except RuntimeError:
+        pass
+
+    try:
+        from backend.windows_sapi_asr import transcribe_windows
+    except ImportError:
+        from windows_sapi_asr import transcribe_windows
+    text = transcribe_windows(audio_path)
     if not text:
-        raise RuntimeError("FunASR returned no transcript")
-    return {"text": text, "provider": "funasr", "raw": result}
+        raise RuntimeError("Windows Chinese speech recognizer returned empty text")
+    return {"text": text, "provider": "windows-sapi", "raw": {}}

@@ -312,10 +312,15 @@ async function getAssistantReply(content, localResult) {
 async function handleVoiceButton() {
   if (state.recording) {
     if (state.recording.recognition) state.recording.recognition.stop();
+    else if (state.recording.pcm) stopPcmRecording();
     else state.recording.mediaRecorder.stop();
     return;
   }
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (navigator.mediaDevices?.getUserMedia && window.AudioContext) {
+    startPcmRecording();
+    return;
+  }
   if (SpeechRecognition) {
     startBrowserSpeechRecognition(SpeechRecognition);
     return;
@@ -352,6 +357,71 @@ async function handleVoiceButton() {
     els.voiceButton.title = "麦克风不可用，点击选择音频文件";
     els.audioInput.click();
   }
+}
+
+async function startPcmRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const context = new AudioContext();
+    const source = context.createMediaStreamSource(stream);
+    const processor = context.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    processor.onaudioprocess = (event) => {
+      chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    };
+    source.connect(processor);
+    processor.connect(context.destination);
+    state.recording = { pcm: true, stream, context, source, processor, chunks };
+    els.voiceButton.title = "停止录音并查询";
+    els.voiceButton.setAttribute("aria-label", "停止录音并查询");
+    els.voiceButton.classList.add("recording");
+  } catch (error) {
+    els.voiceButton.title = "麦克风不可用，点击选择音频文件";
+    els.audioInput.click();
+  }
+}
+
+async function stopPcmRecording() {
+  const recording = state.recording;
+  if (!recording) return;
+  recording.processor.disconnect();
+  recording.source.disconnect();
+  recording.stream.getTracks().forEach((track) => track.stop());
+  const sampleRate = recording.context.sampleRate;
+  await recording.context.close();
+  updateVoiceButtonState();
+  const samples = new Float32Array(recording.chunks.reduce((total, item) => total + item.length, 0));
+  let offset = 0;
+  recording.chunks.forEach((item) => {
+    samples.set(item, offset);
+    offset += item.length;
+  });
+  const wav = encodeWav(samples, sampleRate);
+  await submitVoiceBlob(wav, `microphone-${Date.now()}.wav`);
+}
+
+function encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const write = (offset, text) => [...text].forEach((char, index) => view.setUint8(offset + index, char.charCodeAt(0)));
+  write(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  write(8, "WAVE");
+  write(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  write(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, index) => {
+    const value = Math.max(-1, Math.min(1, sample));
+    view.setInt16(44 + index * 2, value < 0 ? value * 0x8000 : value * 0x7fff, true);
+  });
+  return new Blob([view], { type: "audio/wav" });
 }
 
 function startBrowserSpeechRecognition(SpeechRecognition) {
