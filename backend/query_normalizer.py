@@ -106,6 +106,23 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
         if query_pinyin and item["pinyin"] == query_pinyin:
             score = 0.99 if compact_text(term) == compact_text(item["canonical"]) else 0.98
             reason = "拼音完全一致，且标准表达存在于指标库"
+        elif (
+            query_pinyin
+            and item["pinyin"]
+            and len(query_key) >= 2
+            and abs(len(query_key) - len(term_key)) <= 1
+        ):
+            if (
+                query_pinyin in item["pinyin"]
+                or item["pinyin"] in query_pinyin
+            ) and abs(len(query_pinyin) - len(item["pinyin"])) <= 3:
+                pinyin_similarity = 0.96
+                reason = "拼音前缀匹配，可能存在漏字，且标准表达存在于指标库"
+            else:
+                pinyin_similarity = fuzzy_ratio(query_pinyin, item["pinyin"]) / 100.0
+            if pinyin_similarity >= 0.86:
+                score = pinyin_similarity * 0.92
+                reason = reason or "拼音高度相似，可能存在错音或漏字，且标准表达存在于指标库"
         elif query_initials and len(query_initials) >= 2 and item["initials"] == query_initials:
             score = 0.82
             reason = "拼音首字母一致，且标准表达存在于指标库"

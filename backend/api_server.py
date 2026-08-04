@@ -138,7 +138,11 @@ def search():
             ns["USE_CROSS_ENCODER_RERANK"] = bool(body.get("use_cross_encoder"))
         query_candidates = generate_query_candidates(query, get_metric_terms())
         selected_query = query
-        if len(query_candidates) > 1 and query_candidates[1]["score"] >= 0.95:
+        if (
+            len(query_candidates) > 1
+            and query_candidates[1]["score"] >= 0.86
+            and query_candidates[1].get("reason", "").startswith("拼音")
+        ):
             selected_query = query_candidates[1]["text"]
         answer = ns["graphrag_search"](selected_query, top_k=top_k, use_llm=use_llm)
         answer["query"] = query
