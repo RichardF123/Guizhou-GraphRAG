@@ -2191,6 +2191,10 @@ def route_graphrag_query(query):
         "\u6307\u6807\u6709\u54ea\u4e9b", "\u6709\u54ea\u4e9b\u6307\u6807",
         "\u5305\u62ec\u54ea\u4e9b\u6307\u6807"
     ]
+    natural_global_words = [
+        "\u4e3b\u8981\u770b\u4ec0\u4e48", "\u91cd\u70b9\u770b\u4ec0\u4e48", "\u65b9\u9762\u4e3b\u8981",
+        "\u6709\u54ea\u4e9b\u65b9\u9762", "\u6751\u91cc\u53d1\u5c55\u60c5\u51b5", "\u90fd\u67e5\u4ec0\u4e48"
+    ]
     local_words = [
         "\u662f\u5426", "\u6709\u6ca1\u6709", "\u6709\u65e0", "\u80fd\u5426", "\u505a\u4e86\u6ca1\u6709",
         "\u6709\u6ca1\u6709\u505a", "\u5b8c\u6210\u4e86\u5417", "\u662f\u4e0d\u662f", "\u6211\u60f3\u770b",
@@ -2202,12 +2206,15 @@ def route_graphrag_query(query):
     has_local_signal = any(word in query for word in local_words)
     has_global_signal = any(word in query for word in global_words)
     has_global_count_signal = any(word in query for word in global_count_words)
+    has_natural_global_signal = any(word in query for word in natural_global_words)
     has_compare_signal = any(word in query for word in compare_words)
     has_cross_word = "\u548c" in query or "\u4e0e" in query or has_compare_signal
 
     if len(exact_categories) >= 2 or len(mentioned_categories) >= 2:
         query_type = "cross_category"
     elif has_global_count_signal:
+        query_type = "global"
+    elif has_global_count_signal or has_natural_global_signal:
         query_type = "global"
     elif has_global_signal and not has_local_signal:
         query_type = "global"
@@ -2223,11 +2230,29 @@ def route_graphrag_query(query):
     else:
         selected_categories = [item["category"] for item in rank_communities(query, top_k=5)]
         selected_categories = append_parent_categories(selected_categories)
+    if query_type == "cross_category":
+        route_confidence = 0.96
+        route_reason = "multiple category entities or comparison signal"
+    elif query_type == "global" and (has_global_count_signal or has_natural_global_signal):
+        route_confidence = 0.90
+        route_reason = "category collection or natural-language overview signal"
+    elif query_type == "global":
+        route_confidence = 0.84
+        route_reason = "global collection words"
+    elif query_type == "local" and has_local_signal:
+        route_confidence = 0.88
+        route_reason = "metric value or status signal"
+    else:
+        route_confidence = 0.42
+        route_reason = "weak evidence; local fallback"
+
     return {
         "query": query,
         "query_type": query_type,
         "categories": selected_categories,
-        "reason": "category entity detected" if mentioned_categories else "community ranking"
+        "reason": route_reason,
+        "route_confidence": route_confidence,
+        "route_candidates": [query_type] if route_confidence >= 0.75 else ["local", "global"]
     }
 
 
