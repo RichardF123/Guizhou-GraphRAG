@@ -82,6 +82,7 @@ const els = {
   chatForm: document.querySelector("#chatForm"),
   userInput: document.querySelector("#userInput"),
   audioInput: document.querySelector("#audioInput"),
+  uploadAudioButton: document.querySelector("#uploadAudioButton"),
   voiceButton: document.querySelector("#voiceButton"),
   knowledgeBase: document.querySelector("#knowledgeBase"),
   apiBaseUrl: document.querySelector("#apiBaseUrl"),
@@ -213,6 +214,7 @@ function hydrateSettings() {
 function bindEvents() {
   els.chatForm.addEventListener("submit", handleSubmit);
   els.voiceButton.addEventListener("click", handleVoiceButton);
+  els.uploadAudioButton.addEventListener("click", () => els.audioInput.click());
   els.audioInput.addEventListener("change", handleVoiceSelected);
   document.querySelectorAll(".prompt-chip").forEach((button) => {
     button.addEventListener("click", () => {

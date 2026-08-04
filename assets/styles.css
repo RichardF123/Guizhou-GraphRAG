@@ -257,7 +257,7 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px 42px;
+  grid-template-columns: minmax(0, 1fr) 42px 42px 42px;
   gap: 8px;
   align-items: end;
 }
@@ -509,7 +509,7 @@ textarea:focus {
   }
 
   .composer {
-    grid-template-columns: 1fr 40px 40px;
+    grid-template-columns: 1fr 40px 40px 40px;
   }
 
   .meta-grid {
