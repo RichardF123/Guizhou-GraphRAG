@@ -1,0 +1,8 @@
+[
+  {"metric": "马铃薯", "aliases": ["洋芋"], "region": "西南"},
+  {"metric": "玉米", "aliases": ["包谷", "苞谷"], "region": "西南"},
+  {"metric": "甘薯", "aliases": ["红苕", "红薯"], "region": "西南"},
+  {"metric": "留守老人", "aliases": ["没人照顾的老人", "没人管的老人"], "region": "农村口语"},
+  {"metric": "耕地面积", "aliases": ["地有好多", "田有好多", "种田的地有多少"], "region": "农村口语"},
+  {"metric": "牛", "aliases": ["家里养的牛", "养的牛有多少"], "region": "农村口语"}
+]

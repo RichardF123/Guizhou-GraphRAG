@@ -7,7 +7,9 @@ only when it maps to an existing metric or alias.
 
 from __future__ import annotations
 
+from collections import Counter
 from difflib import SequenceMatcher
+import json
 import re
 from typing import Iterable
 
@@ -26,6 +28,13 @@ except ImportError:
 _NOISE_RE = re.compile(r"[，。！？、；：,.!?;:'\"（）()\[\]{}\s]+")
 
 
+CONFUSION_GROUPS = [
+    "铃玲灵陵", "薯署暑", "户护互", "籍藉集", "常长场",
+    "驻住注", "灌罐贯", "溉概盖", "耕更羹", "畜蓄续", "禽擒勤",
+]
+CONFUSION_MAP = {char: group[0] for group in CONFUSION_GROUPS for char in group}
+
+
 def compact_text(text: str) -> str:
     return _NOISE_RE.sub("", str(text or "")).strip().lower()
 
@@ -42,6 +51,19 @@ def pinyin_initials(text: str) -> str:
     if not text or lazy_pinyin is None:
         return ""
     return "".join(item[0] for item in lazy_pinyin(text) if item).lower()
+
+
+def shape_key(text: str) -> str:
+    return "".join(CONFUSION_MAP.get(char, char) for char in str(text or "")).lower()
+
+
+def load_oral_aliases(path: str) -> list[dict]:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    return [item for item in data if item.get("metric") and item.get("aliases")]
 
 
 def build_metric_terms(metrics: Iterable[dict]) -> list[dict]:
@@ -63,6 +85,7 @@ def build_metric_terms(metrics: Iterable[dict]) -> list[dict]:
                 "canonical": canonical,
                 "pinyin": pinyin_key(term),
                 "initials": pinyin_initials(term),
+                "shape": shape_key(term),
             })
     for item in metrics:
         canonical = str(item.get("metric") or "").strip()
@@ -79,6 +102,7 @@ def build_metric_terms(metrics: Iterable[dict]) -> list[dict]:
                 "canonical": canonical,
                 "pinyin": pinyin_key(term),
                 "initials": pinyin_initials(term),
+                "shape": shape_key(term),
             })
     return terms
 
@@ -103,7 +127,21 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
 
         score = 0.0
         reason = ""
-        if query_pinyin and item["pinyin"] == query_pinyin:
+        if (
+            len(query_key) >= 3
+            and len(query_key) == len(term_key)
+            and Counter(query_key) == Counter(term_key)
+        ):
+            score = 0.84
+            reason = "字符顺序存在变化，但字符集合与标准指标一致"
+        elif (
+            len(query_key) >= 2
+            and shape_key(original) == item.get("shape", "")
+            and query_key != term_key
+        ):
+            score = 0.97
+            reason = "形近字或语音识别混淆，标准表达存在于指标库"
+        elif query_pinyin and item["pinyin"] == query_pinyin:
             score = 0.99 if compact_text(term) == compact_text(item["canonical"]) else 0.98
             reason = "拼音完全一致，且标准表达存在于指标库"
         elif (
@@ -126,6 +164,13 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
         elif query_initials and len(query_initials) >= 2 and item["initials"] == query_initials:
             score = 0.82
             reason = "拼音首字母一致，且标准表达存在于指标库"
+        elif (
+            len(query_key) >= 3
+            and len(query_key) == len(term_key)
+            and Counter(query_key) == Counter(term_key)
+        ):
+            score = 0.84
+            reason = "字符顺序存在变化，但字符集合与标准指标一致"
         elif len(query_key) >= 2 and len(term_key) >= 2:
             similarity = fuzzy_ratio(query_key, term_key) / 100.0
             if similarity >= 0.78:

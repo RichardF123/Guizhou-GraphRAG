@@ -9,9 +9,9 @@ from flask import Flask, jsonify, request, send_from_directory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 try:
-    from backend.query_normalizer import build_metric_terms, generate_query_candidates
+    from backend.query_normalizer import build_metric_terms, generate_query_candidates, load_oral_aliases
 except ImportError:
-    from query_normalizer import build_metric_terms, generate_query_candidates
+    from query_normalizer import build_metric_terms, generate_query_candidates, load_oral_aliases
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -94,6 +94,8 @@ def get_metric_terms():
     for metric in ns["get_all_metrics"](ns["G"]):
         detail = ns["get_metric_detail"](ns["G"], metric)
         rows.append({"metric": metric, "aliases": detail.get("aliases", [])})
+    oral_path = BASE_DIR / "backend" / "rural_oral_aliases.json"
+    rows.extend(load_oral_aliases(str(oral_path)))
     _metric_terms = build_metric_terms(rows)
     return _metric_terms
 
@@ -140,8 +142,8 @@ def search():
         selected_query = query
         if (
             len(query_candidates) > 1
-            and query_candidates[1]["score"] >= 0.86
-            and query_candidates[1].get("reason", "").startswith("拼音")
+            and query_candidates[1]["score"] >= 0.82
+            and query_candidates[1].get("reason", "").startswith(("拼音", "形近", "字符顺序"))
         ):
             selected_query = query_candidates[1]["text"]
         answer = ns["graphrag_search"](selected_query, top_k=top_k, use_llm=use_llm)
