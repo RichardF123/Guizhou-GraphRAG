@@ -2173,6 +2173,65 @@ def rank_communities(query, top_k=5):
 
 
 def route_graphrag_query(query):
+    """Route queries with explicit collection/count handling.
+
+    Category collection questions are global even when they contain a count
+    word such as "how many". Concrete metric status/value questions remain
+    local. Multiple category mentions take the cross-category route.
+    """
+    query = str(query or "").strip()
+    global_words = [
+        "\u54ea\u4e9b", "\u6709\u54ea\u4e9b", "\u5305\u62ec", "\u5305\u542b", "\u65b9\u9762",
+        "\u5206\u7c7b", "\u7c7b\u522b", "\u76f8\u5173\u6307\u6807", "\u6307\u6807\u6709",
+        "\u5217\u4e00\u4e0b", "\u6709\u4ec0\u4e48\u53ef\u67e5", "\u90fd\u6709\u54ea\u4e9b"
+    ]
+    global_count_words = [
+        "\u6709\u591a\u5c11\u4e2a\u6307\u6807", "\u6709\u591a\u5c11\u6307\u6807",
+        "\u591a\u5c11\u9879\u6307\u6807", "\u6307\u6807\u6570\u91cf", "\u6307\u6807\u603b\u6570",
+        "\u6307\u6807\u6709\u54ea\u4e9b", "\u6709\u54ea\u4e9b\u6307\u6807",
+        "\u5305\u62ec\u54ea\u4e9b\u6307\u6807"
+    ]
+    local_words = [
+        "\u662f\u5426", "\u6709\u6ca1\u6709", "\u6709\u65e0", "\u80fd\u5426", "\u505a\u4e86\u6ca1\u6709",
+        "\u6709\u6ca1\u6709\u505a", "\u5b8c\u6210\u4e86\u5417", "\u662f\u4e0d\u662f", "\u6211\u60f3\u770b",
+        "\u67e5\u8be2", "\u591a\u5c11", "\u6709\u591a\u5c11", "\u662f\u591a\u5c11"
+    ]
+    compare_words = ["\u6bd4\u8f83", "\u5bf9\u6bd4", "\u533a\u522b", "\u5dee\u5f02", "\u5206\u522b"]
+    mentioned_categories = category_alias_hits(query)
+    exact_categories = [category for category in categories if category in query]
+    has_local_signal = any(word in query for word in local_words)
+    has_global_signal = any(word in query for word in global_words)
+    has_global_count_signal = any(word in query for word in global_count_words)
+    has_compare_signal = any(word in query for word in compare_words)
+    has_cross_word = "\u548c" in query or "\u4e0e" in query or has_compare_signal
+
+    if len(exact_categories) >= 2 or len(mentioned_categories) >= 2:
+        query_type = "cross_category"
+    elif has_global_count_signal:
+        query_type = "global"
+    elif has_global_signal and not has_local_signal:
+        query_type = "global"
+    elif has_cross_word and has_global_signal:
+        query_type = "cross_category"
+    elif has_local_signal:
+        query_type = "local"
+    else:
+        query_type = "local"
+
+    if mentioned_categories:
+        selected_categories = append_parent_categories(mentioned_categories)
+    else:
+        selected_categories = [item["category"] for item in rank_communities(query, top_k=5)]
+        selected_categories = append_parent_categories(selected_categories)
+    return {
+        "query": query,
+        "query_type": query_type,
+        "categories": selected_categories,
+        "reason": "category entity detected" if mentioned_categories else "community ranking"
+    }
+
+
+def route_graphrag_query_legacy(query):
     """判断 local、global 或 cross_category 查询。"""
     global_words = [
         "哪些", "有哪些", "包括", "包含", "方面", "分类", "类别", "相关指标", "指标有",
