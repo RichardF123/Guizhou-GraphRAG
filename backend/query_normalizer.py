@@ -52,7 +52,23 @@ def build_metric_terms(metrics: Iterable[dict]) -> list[dict]:
         if not canonical:
             continue
         aliases = item.get("aliases") or []
-        for term in [canonical, *aliases]:
+        for term in [canonical]:
+            term = str(term or "").strip()
+            key = compact_text(term)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            terms.append({
+                "term": term,
+                "canonical": canonical,
+                "pinyin": pinyin_key(term),
+                "initials": pinyin_initials(term),
+            })
+    for item in metrics:
+        canonical = str(item.get("metric") or "").strip()
+        if not canonical:
+            continue
+        for term in item.get("aliases") or []:
             term = str(term or "").strip()
             key = compact_text(term)
             if not key or key in seen:
@@ -88,7 +104,7 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
         score = 0.0
         reason = ""
         if query_pinyin and item["pinyin"] == query_pinyin:
-            score = 0.98
+            score = 0.99 if compact_text(term) == compact_text(item["canonical"]) else 0.98
             reason = "拼音完全一致，且标准表达存在于指标库"
         elif query_initials and len(query_initials) >= 2 and item["initials"] == query_initials:
             score = 0.82
@@ -99,8 +115,11 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
                 score = similarity * 0.90
                 reason = "字面相似，且标准表达存在于指标库"
 
-        if score and (item["canonical"], term) not in scored:
-            scored[(item["canonical"], term)] = {
+        if score and (
+            item["canonical"] not in scored
+            or score > scored[item["canonical"]]["score"]
+        ):
+            scored[item["canonical"]] = {
                 "text": item["canonical"],
                 "score": round(score, 4),
                 "reason": reason,
