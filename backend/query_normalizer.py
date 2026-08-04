@@ -63,7 +63,18 @@ def load_oral_aliases(path: str) -> list[dict]:
             data = json.load(handle)
     except (OSError, ValueError):
         return []
-    return [item for item in data if item.get("metric") and item.get("aliases")]
+    normalized = []
+    for item in data:
+        if not item.get("metric"):
+            continue
+        aliases = list(item.get("aliases") or [])
+        aliases.extend(item.get("asr_confusions") or [])
+        if not aliases:
+            continue
+        copy = dict(item)
+        copy["aliases"] = list(dict.fromkeys(aliases))
+        normalized.append(copy)
+    return normalized
 
 
 def build_metric_terms(metrics: Iterable[dict]) -> list[dict]:

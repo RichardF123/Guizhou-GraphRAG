@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -12,6 +13,11 @@ try:
     from backend.query_normalizer import build_metric_terms, choose_normalized_query, generate_query_candidates, load_oral_aliases
 except ImportError:
     from query_normalizer import build_metric_terms, choose_normalized_query, generate_query_candidates, load_oral_aliases
+
+try:
+    from backend.speech_service import transcribe_audio
+except ImportError:
+    from speech_service import transcribe_audio
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -163,6 +169,46 @@ def search():
     except Exception as exc:
         app.logger.exception("GraphRAG search failed")
         return jsonify({"error": "检索服务暂时不可用", "detail": str(exc)}), 500
+
+@app.post("/api/voice-query")
+def voice_query():
+    """Transcribe an uploaded audio query, then reuse the text GraphRAG path."""
+    audio = request.files.get("audio")
+    if audio is None or not audio.filename:
+        return jsonify({"error": "audio file is required"}), 400
+    suffix = Path(audio.filename).suffix.lower() or ".wav"
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+            audio.save(handle)
+            temp_path = handle.name
+        transcript = transcribe_audio(temp_path)
+        text_query = str(transcript.get("text", "")).strip()
+        if not text_query:
+            return jsonify({"error": "ASR returned empty text"}), 422
+        top_k = max(1, min(int(request.form.get("top_k", 5)), 10))
+        use_llm = str(request.form.get("use_llm", "true")).lower() == "true"
+        ns = load_graphrag()
+        query_candidates = generate_query_candidates(text_query, get_metric_terms())
+        selected_query, selected_correction = choose_normalized_query(text_query, query_candidates)
+        answer = ns["graphrag_search"](selected_query, top_k=top_k, use_llm=use_llm)
+        answer["query"] = text_query
+        answer["audio_text"] = text_query
+        answer["normalized_query"] = selected_query
+        answer["query_candidates"] = query_candidates
+        answer["selected_correction"] = selected_correction
+        answer["asr"] = {"provider": transcript.get("provider", "unknown"), "filename": audio.filename}
+        answer["answer_text"] = build_answer_text(answer)
+        return jsonify(answer)
+    except Exception as exc:
+        app.logger.exception("Voice GraphRAG search failed")
+        return jsonify({"error": "voice query unavailable", "detail": str(exc)}), 503
+    finally:
+        if temp_path:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

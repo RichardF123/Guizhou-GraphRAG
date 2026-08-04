@@ -80,6 +80,8 @@ const els = {
   chatStream: document.querySelector("#chatStream"),
   chatForm: document.querySelector("#chatForm"),
   userInput: document.querySelector("#userInput"),
+  audioInput: document.querySelector("#audioInput"),
+  voiceButton: document.querySelector("#voiceButton"),
   knowledgeBase: document.querySelector("#knowledgeBase"),
   apiBaseUrl: document.querySelector("#apiBaseUrl"),
   modelName: document.querySelector("#modelName"),
@@ -209,6 +211,8 @@ function hydrateSettings() {
 
 function bindEvents() {
   els.chatForm.addEventListener("submit", handleSubmit);
+  els.voiceButton.addEventListener("click", () => els.audioInput.click());
+  els.audioInput.addEventListener("change", handleVoiceSelected);
   document.querySelectorAll(".prompt-chip").forEach((button) => {
     button.addEventListener("click", () => {
       els.userInput.value = button.textContent.trim();
@@ -300,6 +304,34 @@ async function getAssistantReply(content, localResult) {
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   const data = await response.json();
   return data.choices?.[0]?.message?.content?.trim() || buildLocalReply(localResult);
+}
+
+async function handleVoiceSelected(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+
+  addMessage("user", `语音查询：${file.name}`);
+  const typingId = addMessage("assistant", "正在识别语音并匹配指标...", true);
+  try {
+    const formData = new FormData();
+    formData.append("audio", file);
+    formData.append("top_k", "5");
+    formData.append("use_llm", "true");
+    const endpoint = state.settings.apiBaseUrl.endsWith("/api/search")
+      ? state.settings.apiBaseUrl.replace(/\/api\/search$/, "/api/voice-query")
+      : "/api/voice-query";
+    const response = await fetch(endpoint, { method: "POST", body: formData });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const data = await response.json();
+    const transcript = data.audio_text || data.query || "";
+    updateMessage(
+      typingId,
+      `${transcript ? `识别文字：${transcript}\n\n` : ""}${formatGraphRagReply(data, analyzeQuestion(transcript))}`
+    );
+  } catch (error) {
+    updateMessage(typingId, `语音识别暂不可用：${error.message}`);
+  }
 }
 
 function formatGraphRagReply(data, fallback) {
