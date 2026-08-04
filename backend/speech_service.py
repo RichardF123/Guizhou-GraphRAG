@@ -7,6 +7,7 @@ remote service is configured, FunASR is loaded lazily when installed.
 from __future__ import annotations
 
 import os
+import mimetypes
 from pathlib import Path
 from typing import Any
 
@@ -37,10 +38,11 @@ def _transcribe_remote(audio_path: str) -> dict:
     url = os.getenv("ASR_URL", "").strip()
     if not url:
         return {}
+    content_type = mimetypes.guess_type(audio_path)[0] or "application/octet-stream"
     with open(audio_path, "rb") as audio:
         response = requests.post(
             url,
-            files={"file": (Path(audio_path).name, audio, "audio/wav")},
+            files={"file": (Path(audio_path).name, audio, content_type)},
             data={"language": "zh", "hotwords": os.getenv("ASR_HOTWORDS", "")},
             timeout=float(os.getenv("ASR_TIMEOUT", "120")),
         )

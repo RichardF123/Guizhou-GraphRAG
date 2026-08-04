@@ -72,6 +72,7 @@ const state = {
     metricEndpoint: "",
     metricAccessToken: "",
   }),
+  recording: null,
 };
 
 const els = {
@@ -211,7 +212,7 @@ function hydrateSettings() {
 
 function bindEvents() {
   els.chatForm.addEventListener("submit", handleSubmit);
-  els.voiceButton.addEventListener("click", () => els.audioInput.click());
+  els.voiceButton.addEventListener("click", handleVoiceButton);
   els.audioInput.addEventListener("change", handleVoiceSelected);
   document.querySelectorAll(".prompt-chip").forEach((button) => {
     button.addEventListener("click", () => {
@@ -306,16 +307,59 @@ async function getAssistantReply(content, localResult) {
   return data.choices?.[0]?.message?.content?.trim() || buildLocalReply(localResult);
 }
 
+async function handleVoiceButton() {
+  if (state.recording) {
+    state.recording.mediaRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    els.audioInput.click();
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+    const chunks = [];
+    state.recording = { mediaRecorder, stream, chunks };
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      state.recording = null;
+      els.voiceButton.title = "使用麦克风输入";
+      els.voiceButton.setAttribute("aria-label", "使用麦克风输入");
+      els.voiceButton.classList.remove("recording");
+      const blob = new Blob(chunks, { type: mimeType });
+      await submitVoiceBlob(blob, `microphone-${Date.now()}.webm`);
+    };
+    mediaRecorder.start();
+    els.voiceButton.title = "停止录音并查询";
+    els.voiceButton.setAttribute("aria-label", "停止录音并查询");
+    els.voiceButton.classList.add("recording");
+  } catch (error) {
+    els.voiceButton.title = "麦克风不可用，点击选择音频文件";
+    els.audioInput.click();
+  }
+}
+
 async function handleVoiceSelected(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
 
-  addMessage("user", `语音查询：${file.name}`);
+  await submitVoiceBlob(file, file.name);
+}
+
+async function submitVoiceBlob(blob, filename) {
+  addMessage("user", `语音查询：${filename}`);
   const typingId = addMessage("assistant", "正在识别语音并匹配指标...", true);
   try {
     const formData = new FormData();
-    formData.append("audio", file);
+    formData.append("audio", blob, filename);
     formData.append("top_k", "5");
     formData.append("use_llm", "true");
     const endpoint = state.settings.apiBaseUrl.endsWith("/api/search")
