@@ -311,7 +311,13 @@ async function getAssistantReply(content, localResult) {
 
 async function handleVoiceButton() {
   if (state.recording) {
-    state.recording.mediaRecorder.stop();
+    if (state.recording.recognition) state.recording.recognition.stop();
+    else state.recording.mediaRecorder.stop();
+    return;
+  }
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognition) {
+    startBrowserSpeechRecognition(SpeechRecognition);
     return;
   }
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
@@ -346,6 +352,45 @@ async function handleVoiceButton() {
     els.voiceButton.title = "麦克风不可用，点击选择音频文件";
     els.audioInput.click();
   }
+}
+
+function startBrowserSpeechRecognition(SpeechRecognition) {
+  const recognition = new SpeechRecognition();
+  recognition.lang = "zh-CN";
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 3;
+  state.recording = { recognition };
+  els.voiceButton.title = "停止语音识别";
+  els.voiceButton.setAttribute("aria-label", "停止语音识别");
+  els.voiceButton.classList.add("recording");
+  recognition.onresult = (event) => {
+    const transcript = Array.from(event.results)
+      .map((result) => result[0]?.transcript || "")
+      .join("")
+      .trim();
+    if (transcript) {
+      els.userInput.value = transcript;
+      els.chatForm.requestSubmit();
+    }
+  };
+  recognition.onerror = (event) => {
+    updateVoiceButtonState();
+    if (event.error === "not-allowed") {
+      addMessage("assistant", "浏览器未授权麦克风，请在地址栏允许麦克风权限后重试。");
+    } else if (event.error !== "aborted") {
+      addMessage("assistant", `浏览器语音识别失败：${event.error}`);
+    }
+  };
+  recognition.onend = updateVoiceButtonState;
+  recognition.start();
+}
+
+function updateVoiceButtonState() {
+  state.recording = null;
+  els.voiceButton.title = "使用麦克风输入";
+  els.voiceButton.setAttribute("aria-label", "使用麦克风输入");
+  els.voiceButton.classList.remove("recording");
 }
 
 async function handleVoiceSelected(event) {
