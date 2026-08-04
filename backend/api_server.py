@@ -1,9 +1,17 @@
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    from backend.query_normalizer import build_metric_terms, generate_query_candidates
+except ImportError:
+    from query_normalizer import build_metric_terms, generate_query_candidates
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -21,6 +29,7 @@ def add_cors_headers(response):
 
 _load_lock = threading.Lock()
 _graph_ns = None
+_metric_terms = None
 
 
 def load_graphrag():
@@ -76,6 +85,19 @@ def build_answer_text(answer):
     return "\n".join(lines)
 
 
+def get_metric_terms():
+    global _metric_terms
+    if _metric_terms is not None:
+        return _metric_terms
+    ns = load_graphrag()
+    rows = []
+    for metric in ns["get_all_metrics"](ns["G"]):
+        detail = ns["get_metric_detail"](ns["G"], metric)
+        rows.append({"metric": metric, "aliases": detail.get("aliases", [])})
+    _metric_terms = build_metric_terms(rows)
+    return _metric_terms
+
+
 @app.get("/health")
 def health():
     return jsonify({
@@ -114,8 +136,20 @@ def search():
         ns = load_graphrag()
         if "use_cross_encoder" in body:
             ns["USE_CROSS_ENCODER_RERANK"] = bool(body.get("use_cross_encoder"))
-        answer = ns["graphrag_search"](query, top_k=top_k, use_llm=use_llm)
+        query_candidates = generate_query_candidates(query, get_metric_terms())
+        selected_query = query
+        if len(query_candidates) > 1 and query_candidates[1]["score"] >= 0.95:
+            selected_query = query_candidates[1]["text"]
+        answer = ns["graphrag_search"](selected_query, top_k=top_k, use_llm=use_llm)
+        answer["query"] = query
+        answer["normalized_query"] = selected_query
+        answer["query_candidates"] = query_candidates
         answer["answer_text"] = build_answer_text(answer)
+        if selected_query != query:
+            answer["answer_text"] = (
+                f"识别为标准指标表达：{selected_query}\n\n"
+                + answer["answer_text"]
+            )
         answer["service"] = "python-graphrag-qwen"
         return jsonify(answer)
     except Exception as exc:

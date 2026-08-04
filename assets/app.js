@@ -322,6 +322,9 @@ function formatGraphRagReply(data, fallback) {
     .flatMap((item) => item.matched_paths || [])
     .slice(0, 4);
   const meta = [`GraphRAG：${mode}`];
+  if (data.normalized_query && data.normalized_query !== data.query) {
+    meta.push(`输入纠错：${data.query} -> ${data.normalized_query}`);
+  }
   if (routeCategories) meta.push(`候选大类：${routeCategories}`);
   if (planParts.length) meta.push(`查询理解：${planParts.join("、")}`);
   if (paths.length) meta.push(`图谱路径：\n${paths.map((path) => `- ${path}`).join("\n")}`);

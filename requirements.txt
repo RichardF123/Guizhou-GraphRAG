@@ -1,0 +1,6 @@
+flask>=3.0
+networkx>=3.0
+pandas>=2.0
+requests>=2.31
+pypinyin>=0.55
+rapidfuzz>=3.0
