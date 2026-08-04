@@ -1,8 +1,83 @@
 [
-  {"metric": "马铃薯", "aliases": ["洋芋"], "region": "西南"},
-  {"metric": "玉米", "aliases": ["包谷", "苞谷"], "region": "西南"},
-  {"metric": "甘薯", "aliases": ["红苕", "红薯"], "region": "西南"},
-  {"metric": "留守老人", "aliases": ["没人照顾的老人", "没人管的老人"], "region": "农村口语"},
-  {"metric": "耕地面积", "aliases": ["地有好多", "田有好多", "种田的地有多少"], "region": "农村口语"},
-  {"metric": "牛", "aliases": ["家里养的牛", "养的牛有多少"], "region": "农村口语"}
+  {
+    "metric": "马铃薯",
+    "aliases": ["洋芋", "土豆"],
+    "region": "贵州（高置信）",
+    "confidence": "high",
+    "source": "贵州省农业科学院报道：贵州是马铃薯重要产区，并称为“洋芋国”；贵州地方语言资料列出“马铃薯—洋芋、土豆”。",
+    "source_url": "https://aas.guizhou.gov.cn/xwzx/mtgz/202512/t20251203_89010752.html",
+    "notes": "用于农业语境；“马”不能作为马铃薯的独立别名。"
+  },
+  {
+    "metric": "玉米",
+    "aliases": ["包谷", "苞谷", "玉麦"],
+    "region": "贵州（区域差异）",
+    "confidence": "medium",
+    "source": "贵州地方语言资料中的农业作物词条。",
+    "source_url": "https://www.yuncunzhai.com/book/161766.jhtml",
+    "notes": "建议在上线前按贵阳、遵义、毕节、黔东南等地区采样确认。"
+  },
+  {
+    "metric": "甘薯",
+    "aliases": ["红苕", "红薯", "地瓜", "番薯", "白苕", "地萝卜"],
+    "region": "贵州（高置信）",
+    "confidence": "high",
+    "source": "贵州省农业农村厅《贵州省甘薯安全生产技术指导意见》明确说明甘薯又称红薯、红苕、地瓜、番薯等；贵州地方语言资料补充白苕、地萝卜。",
+    "source_url": "https://nynct.guizhou.gov.cn/xwzx/zwdt/202601/t20260126_89340177.html",
+    "notes": "“红苕”在贵州农村农业语境中优先保留。"
+  },
+  {
+    "metric": "南瓜",
+    "aliases": ["荒瓜"],
+    "region": "贵州（待核验）",
+    "confidence": "low",
+    "source": "贵州地方语言资料中的农业作物词条。",
+    "source_url": "https://www.yuncunzhai.com/book/161766.jhtml",
+    "notes": "低置信词仅作为候选召回，不直接自动改写查询。"
+  },
+  {
+    "metric": "番茄",
+    "aliases": ["毛辣角", "洋海椒"],
+    "region": "贵州（待核验）",
+    "confidence": "low",
+    "source": "贵州地方语言资料中的农业作物词条。",
+    "source_url": "https://www.yuncunzhai.com/book/161766.jhtml",
+    "notes": "低置信词仅作为候选召回，不直接自动改写查询。"
+  },
+  {
+    "metric": "辣椒",
+    "aliases": ["辣角", "海椒"],
+    "region": "贵州（待核验）",
+    "confidence": "low",
+    "source": "贵州地方语言资料中的农业作物词条。",
+    "source_url": "https://www.yuncunzhai.com/book/161766.jhtml",
+    "notes": "低置信词仅作为候选召回，不直接自动改写查询。"
+  },
+  {
+    "metric": "留守老人",
+    "aliases": ["没人照顾的老人", "没人管的老人"],
+    "region": "农村口语",
+    "confidence": "medium",
+    "source": "项目内用户口语测试样例。",
+    "source_url": "",
+    "notes": "属于任务口语表达，不是贵州方言专属词。"
+  },
+  {
+    "metric": "耕地面积",
+    "aliases": ["地有好多", "田有好多", "种田的地有多少"],
+    "region": "农村口语",
+    "confidence": "medium",
+    "source": "项目内用户口语测试样例。",
+    "source_url": "",
+    "notes": "属于任务口语表达，不是贵州方言专属词。"
+  },
+  {
+    "metric": "牛",
+    "aliases": ["家里养的牛", "养的牛有多少"],
+    "region": "农村口语",
+    "confidence": "medium",
+    "source": "项目内用户口语测试样例。",
+    "source_url": "",
+    "notes": "属于任务口语表达，不是贵州方言专属词。"
+  }
 ]

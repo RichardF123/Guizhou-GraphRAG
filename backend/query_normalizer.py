@@ -86,6 +86,9 @@ def build_metric_terms(metrics: Iterable[dict]) -> list[dict]:
                 "pinyin": pinyin_key(term),
                 "initials": pinyin_initials(term),
                 "shape": shape_key(term),
+                "confidence": item.get("confidence", "high"),
+                "region": item.get("region", ""),
+                "source_url": item.get("source_url", ""),
             })
     for item in metrics:
         canonical = str(item.get("metric") or "").strip()
@@ -103,6 +106,9 @@ def build_metric_terms(metrics: Iterable[dict]) -> list[dict]:
                 "pinyin": pinyin_key(term),
                 "initials": pinyin_initials(term),
                 "shape": shape_key(term),
+                "confidence": item.get("confidence", "high"),
+                "region": item.get("region", ""),
+                "source_url": item.get("source_url", ""),
             })
     return terms
 
@@ -181,11 +187,19 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
             item["canonical"] not in scored
             or score > scored[item["canonical"]]["score"]
         ):
+            confidence = item.get("confidence", "high")
+            if confidence == "low":
+                score *= 0.72
+            elif confidence == "medium":
+                score *= 0.92
             scored[item["canonical"]] = {
                 "text": item["canonical"],
                 "score": round(score, 4),
                 "reason": reason,
                 "matched_term": term,
+                "confidence": confidence,
+                "region": item.get("region", ""),
+                "source_url": item.get("source_url", ""),
             }
 
     ranked = sorted(scored.values(), key=lambda item: item["score"], reverse=True)
