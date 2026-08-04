@@ -213,3 +213,25 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
         if item["text"] != original:
             candidates.append(item)
     return candidates[:limit]
+
+
+def choose_normalized_query(query: str, candidates: list[dict], threshold: float = 0.82):
+    """Choose a safe correction; keep ambiguous candidates for reranking only."""
+    original = str(query or "").strip()
+    if len(candidates) < 2 or len(compact_text(original)) <= 1:
+        return original, None
+    candidate = candidates[1]
+    score = float(candidate.get("score", 0.0) or 0.0)
+    confidence = candidate.get("confidence", "high")
+    matched_term = str(candidate.get("matched_term", ""))
+    canonical = str(candidate.get("text", ""))
+    exact_alias = compact_text(matched_term) == compact_text(original)
+    close_shape_or_sound = score >= 0.94
+    likely_missing_char = score >= 0.86 and abs(
+        len(compact_text(original)) - len(compact_text(canonical))
+    ) <= 1
+    if confidence == "low" or score < threshold:
+        return original, None
+    if exact_alias or close_shape_or_sound or likely_missing_char:
+        return canonical, candidate
+    return original, None

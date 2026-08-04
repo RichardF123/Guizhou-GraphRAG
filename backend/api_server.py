@@ -9,9 +9,9 @@ from flask import Flask, jsonify, request, send_from_directory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 try:
-    from backend.query_normalizer import build_metric_terms, generate_query_candidates, load_oral_aliases
+    from backend.query_normalizer import build_metric_terms, choose_normalized_query, generate_query_candidates, load_oral_aliases
 except ImportError:
-    from query_normalizer import build_metric_terms, generate_query_candidates, load_oral_aliases
+    from query_normalizer import build_metric_terms, choose_normalized_query, generate_query_candidates, load_oral_aliases
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -146,10 +146,12 @@ def search():
             and query_candidates[1].get("reason", "").startswith(("拼音", "形近", "字符顺序", "农村口语"))
         ):
             selected_query = query_candidates[1]["text"]
+        selected_query, selected_correction = choose_normalized_query(query, query_candidates)
         answer = ns["graphrag_search"](selected_query, top_k=top_k, use_llm=use_llm)
         answer["query"] = query
         answer["normalized_query"] = selected_query
         answer["query_candidates"] = query_candidates
+        answer["selected_correction"] = selected_correction
         answer["answer_text"] = build_answer_text(answer)
         if selected_query != query:
             answer["answer_text"] = (
