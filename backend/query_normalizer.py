@@ -129,28 +129,34 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
         term = item["term"]
         term_key = compact_text(term)
         if term_key == query_key:
-            continue
+            canonical_key = compact_text(item["canonical"])
+            if term_key != canonical_key:
+                score = 0.995
+                reason = "农村口语或方言别名，标准指标库存在对应指标"
+            else:
+                continue
+        else:
+            score = 0.0
+            reason = ""
 
-        score = 0.0
-        reason = ""
-        if (
+        if not score and (
             len(query_key) >= 3
             and len(query_key) == len(term_key)
             and Counter(query_key) == Counter(term_key)
         ):
             score = 0.84
             reason = "字符顺序存在变化，但字符集合与标准指标一致"
-        elif (
+        elif not score and (
             len(query_key) >= 2
             and shape_key(original) == item.get("shape", "")
             and query_key != term_key
         ):
             score = 0.97
             reason = "形近字或语音识别混淆，标准表达存在于指标库"
-        elif query_pinyin and item["pinyin"] == query_pinyin:
+        elif not score and query_pinyin and item["pinyin"] == query_pinyin:
             score = 0.99 if compact_text(term) == compact_text(item["canonical"]) else 0.98
             reason = "拼音完全一致，且标准表达存在于指标库"
-        elif (
+        elif not score and (
             query_pinyin
             and item["pinyin"]
             and len(query_key) >= 2
@@ -167,17 +173,17 @@ def generate_query_candidates(query: str, metric_terms: list[dict], limit: int =
             if pinyin_similarity >= 0.86:
                 score = pinyin_similarity * 0.92
                 reason = reason or "拼音高度相似，可能存在错音或漏字，且标准表达存在于指标库"
-        elif query_initials and len(query_initials) >= 2 and item["initials"] == query_initials:
+        elif not score and query_initials and len(query_initials) >= 2 and item["initials"] == query_initials:
             score = 0.82
             reason = "拼音首字母一致，且标准表达存在于指标库"
-        elif (
+        elif not score and (
             len(query_key) >= 3
             and len(query_key) == len(term_key)
             and Counter(query_key) == Counter(term_key)
         ):
             score = 0.84
             reason = "字符顺序存在变化，但字符集合与标准指标一致"
-        elif len(query_key) >= 2 and len(term_key) >= 2:
+        elif not score and len(query_key) >= 2 and len(term_key) >= 2:
             similarity = fuzzy_ratio(query_key, term_key) / 100.0
             if similarity >= 0.78:
                 score = similarity * 0.90

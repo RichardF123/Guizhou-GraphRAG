@@ -143,7 +143,7 @@ def search():
         if (
             len(query_candidates) > 1
             and query_candidates[1]["score"] >= 0.82
-            and query_candidates[1].get("reason", "").startswith(("拼音", "形近", "字符顺序"))
+            and query_candidates[1].get("reason", "").startswith(("拼音", "形近", "字符顺序", "农村口语"))
         ):
             selected_query = query_candidates[1]["text"]
         answer = ns["graphrag_search"](selected_query, top_k=top_k, use_llm=use_llm)
